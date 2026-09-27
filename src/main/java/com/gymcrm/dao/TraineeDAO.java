@@ -33,15 +33,17 @@ public class TraineeDAO {
     }
 
     public Optional<Trainee> findById(Long id) {
+        log.debug("Finding Trainee by ID: {}", id);
         return Optional.ofNullable((Trainee) storage.findById(NAMESPACE, id));
     }
 
     public void delete(Long id) {
+        log.info("Deleting Trainee with ID: {}", id);
         storage.remove(NAMESPACE, id);
-        log.debug("Deleted Trainee with ID: {}", id);
     }
 
     public Collection<Trainee> findAll() {
+        log.debug("Finding all Trainees");
         return storage.findAll(NAMESPACE).stream()
                 .map(obj -> (Trainee) obj)
                 .collect(Collectors.toList());

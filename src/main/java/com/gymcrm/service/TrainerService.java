@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class TrainerService {
@@ -32,7 +31,7 @@ public class TrainerService {
     }
 
     public Trainer createTrainer(Trainer trainer) {
-        Set<String> existingUsernames = getAllUsernames();
+        Set<String> existingUsernames = UserUtils.collectUsernames(traineeDAO.findAll(), trainerDAO.findAll());
         trainer.setUsername(UserUtils.generateUsername(trainer.getFirstName(), trainer.getLastName(), existingUsernames));
         trainer.setPassword(UserUtils.generatePassword());
         Trainer saved = trainerDAO.save(trainer);
@@ -47,15 +46,5 @@ public class TrainerService {
 
     public Optional<Trainer> getTrainer(Long id) {
         return trainerDAO.findById(id);
-    }
-
-    private Set<String> getAllUsernames() {
-        Set<String> usernames = trainerDAO.findAll().stream()
-                .map(User::getUsername)
-                .collect(Collectors.toSet());
-        usernames.addAll(traineeDAO.findAll().stream()
-                .map(User::getUsername)
-                .collect(Collectors.toSet()));
-        return usernames;
     }
 }

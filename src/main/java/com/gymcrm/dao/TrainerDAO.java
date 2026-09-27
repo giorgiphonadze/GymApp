@@ -33,10 +33,12 @@ public class TrainerDAO {
     }
 
     public Optional<Trainer> findById(Long id) {
+        log.debug("Finding Trainer by ID: {}", id);
         return Optional.ofNullable((Trainer) storage.findById(NAMESPACE, id));
     }
 
     public Collection<Trainer> findAll() {
+        log.debug("Finding all Trainers");
         return storage.findAll(NAMESPACE).stream()
                 .map(obj -> (Trainer) obj)
                 .collect(Collectors.toList());
