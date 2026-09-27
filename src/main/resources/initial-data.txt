@@ -1,0 +1,3 @@
+TRAINEE,John,Smith,2000-01-01,123 Main St
+TRAINER,Alice,Jones,Yoga
+TRAINEE,John,Smith,1995-05-05,456 Oak Ave
