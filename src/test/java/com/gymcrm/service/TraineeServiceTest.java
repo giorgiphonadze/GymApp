@@ -48,19 +48,21 @@ public class TraineeServiceTest {
     }
 
     @Test
-    void testGetTrainee() {
+    void testGetTraineeByUsername() {
         Trainee trainee = new Trainee();
-        when(traineeDAO.findById(1L)).thenReturn(Optional.of(trainee));
+        when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.of(trainee));
 
-        Optional<Trainee> found = traineeService.getTrainee(1L);
+        Optional<Trainee> found = traineeService.getTraineeByUsername("John.Smith");
 
         assertTrue(found.isPresent());
-        verify(traineeDAO).findById(1L);
+        verify(traineeDAO).findByUsername("John.Smith");
     }
 
     @Test
     void testDeleteTrainee() {
-        traineeService.deleteTrainee(1L);
-        verify(traineeDAO).delete(1L);
+        Trainee trainee = new Trainee();
+        when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.of(trainee));
+        traineeService.deleteTrainee("John.Smith");
+        verify(traineeDAO).delete(trainee);
     }
 }

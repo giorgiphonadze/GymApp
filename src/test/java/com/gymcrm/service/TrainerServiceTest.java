@@ -36,7 +36,7 @@ public class TrainerServiceTest {
 
     @Test
     void testCreateTrainer() {
-        Trainer trainer = new Trainer("Alice", "Jones", new TrainingType("Yoga"));
+        Trainer trainer = new Trainer("Alice", "Jones", TrainingType.YOGA);
         when(trainerDAO.findAll()).thenReturn(Collections.emptyList());
         when(traineeDAO.findAll()).thenReturn(Collections.emptyList());
         when(trainerDAO.save(any(Trainer.class))).thenAnswer(i -> i.getArgument(0));
@@ -49,13 +49,13 @@ public class TrainerServiceTest {
     }
 
     @Test
-    void testGetTrainer() {
+    void testGetTrainerByUsername() {
         Trainer trainer = new Trainer();
-        when(trainerDAO.findById(1L)).thenReturn(Optional.of(trainer));
+        when(trainerDAO.findByUsername("Alice.Jones")).thenReturn(Optional.of(trainer));
 
-        Optional<Trainer> found = trainerService.getTrainer(1L);
+        Optional<Trainer> found = trainerService.getTrainerByUsername("Alice.Jones");
 
         assertTrue(found.isPresent());
-        verify(trainerDAO).findById(1L);
+        verify(trainerDAO).findByUsername("Alice.Jones");
     }
 }

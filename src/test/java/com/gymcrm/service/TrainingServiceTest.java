@@ -1,6 +1,10 @@
 package com.gymcrm.service;
 
+import com.gymcrm.dao.TraineeDAO;
+import com.gymcrm.dao.TrainerDAO;
 import com.gymcrm.dao.TrainingDAO;
+import com.gymcrm.domain.Trainee;
+import com.gymcrm.domain.Trainer;
 import com.gymcrm.domain.Training;
 import com.gymcrm.domain.TrainingType;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Optional;
 
@@ -21,6 +26,10 @@ public class TrainingServiceTest {
 
     @Mock
     private TrainingDAO trainingDAO;
+    @Mock
+    private TraineeDAO traineeDAO;
+    @Mock
+    private TrainerDAO trainerDAO;
 
     private TrainingService trainingService;
 
@@ -28,28 +37,20 @@ public class TrainingServiceTest {
     void setUp() {
         trainingService = new TrainingService();
         trainingService.setTrainingDAO(trainingDAO);
+        trainingService.setTraineeDAO(traineeDAO);
+        trainingService.setTrainerDAO(trainerDAO);
     }
 
     @Test
     void testCreateTraining() {
-        Training training = new Training(1L, 2L, "Training 1", new TrainingType("Yoga"), LocalDate.now(), 60);
-        when(trainingDAO.save(any(Training.class))).thenAnswer(i -> i.getArgument(0));
+        Trainee trainee = new Trainee();
+        Trainer trainer = new Trainer();
+        trainer.setSpecialization(TrainingType.YOGA);
+        when(traineeDAO.findByUsername("trainee")).thenReturn(Optional.of(trainee));
+        when(trainerDAO.findByUsername("trainer")).thenReturn(Optional.of(trainer));
 
-        Training created = trainingService.createTraining(training);
+        trainingService.createTraining("trainee", "trainer", "Training 1", LocalDate.now(), Duration.ofMinutes(60));
 
-        assertNotNull(created);
-        assertEquals("Training 1", created.getTrainingName());
-        verify(trainingDAO).save(training);
-    }
-
-    @Test
-    void testGetTraining() {
-        Training training = new Training(1L, 2L, "Training 1", new TrainingType("Yoga"), LocalDate.now(), 60);
-        when(trainingDAO.findById(1L)).thenReturn(Optional.of(training));
-
-        Optional<Training> found = trainingService.getTraining(1L);
-
-        assertTrue(found.isPresent());
-        verify(trainingDAO).findById(1L);
+        verify(trainingDAO).save(any(Training.class));
     }
 }

@@ -1,25 +1,57 @@
 package com.gymcrm.domain;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Objects;
 
 @Getter
 @Setter
+@NoArgsConstructor
+@Entity
+@Table(name = "trainings")
 public class Training {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    private Long trainerId;
-    private Long traineeId;
-    private String trainingName;
-    private TrainingType trainingType;
-    private LocalDate trainingDate;
-    private int trainingDuration; // minutes
 
-    public Training(Long trainerId, Long traineeId, String trainingName, TrainingType trainingType, LocalDate trainingDate, int trainingDuration) {
-        this.trainerId = trainerId;
-        this.traineeId = traineeId;
+    @ManyToOne
+    @JoinColumn(name = "trainer_id", nullable = false)
+    private Trainer trainer;
+
+    @ManyToOne
+    @JoinColumn(name = "trainee_id", nullable = false)
+    private Trainee trainee;
+
+    @Column(nullable = false)
+    private String trainingName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "training_type", nullable = false)
+    private TrainingType trainingType;
+
+    @Column(nullable = false)
+    private LocalDate trainingDate;
+
+    @Column(nullable = false)
+    private Duration trainingDuration;
+
+    public Training(Trainer trainer, Trainee trainee, String trainingName, TrainingType trainingType, LocalDate trainingDate, Duration trainingDuration) {
+        this.trainer = trainer;
+        this.trainee = trainee;
         this.trainingName = trainingName;
         this.trainingType = trainingType;
         this.trainingDate = trainingDate;
@@ -45,7 +77,8 @@ public class Training {
     @Override
     public String toString() {
         return "Training{id=" + id + ", name='" + trainingName + "', type=" + trainingType
-                + ", trainerId=" + trainerId + ", traineeId=" + traineeId
+                + ", trainer=" + (trainer != null ? trainer.getUsername() : "null")
+                + ", trainee=" + (trainee != null ? trainee.getUsername() : "null")
                 + ", date=" + trainingDate + ", duration=" + trainingDuration + "}";
     }
 }

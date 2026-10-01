@@ -1,44 +1,26 @@
 package com.gymcrm.domain;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+public enum TrainingType {
+    YOGA("Yoga"),
+    BJJ("BJJ"),
+    CARDIO("Cardio"),
+    STRENGTH("Strength"),
+    ZUMBA("Zumba"),
+    PILATES("Pilates"),
+    BOXING("Boxing");
 
-import java.util.Objects;
+    private final String name;
 
-@Getter
-@Setter
-@NoArgsConstructor
-public class TrainingType {
-    private Long id;
-    private String trainingTypeName;
-
-    public TrainingType(Long id, String trainingTypeName){
-        this.id = id;
-        this.trainingTypeName = trainingTypeName;
-    }
-    public TrainingType(String trainingType){
-        this.trainingTypeName = trainingType;
+    TrainingType(String name) {
+        this.name = name;
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj){
-            return true;
-        }
-        if (!(obj instanceof TrainingType that)){
-            return false;
-        }
-        return Objects.equals(trainingTypeName, that.trainingTypeName);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(trainingTypeName);
+    public String getTrainingTypeName() {
+        return name;
     }
 
     @Override
     public String toString() {
-        return "TrainingType{name ='" + trainingTypeName + "'}";
+        return name;
     }
 }
