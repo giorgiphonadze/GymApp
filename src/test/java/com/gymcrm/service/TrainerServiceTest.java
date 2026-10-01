@@ -2,6 +2,7 @@ package com.gymcrm.service;
 
 import com.gymcrm.dao.TraineeDAO;
 import com.gymcrm.dao.TrainerDAO;
+import com.gymcrm.domain.Trainee;
 import com.gymcrm.domain.Trainer;
 import com.gymcrm.domain.TrainingType;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,13 +50,41 @@ public class TrainerServiceTest {
     }
 
     @Test
-    void testGetTrainerByUsername() {
+    void testUpdateTrainerAuthFailure() {
+        when(trainerDAO.findByUsername("Alice.Jones")).thenReturn(Optional.empty());
+        assertThrows(SecurityException.class, () -> trainerService.updateTrainer("Alice.Jones", "wrong", new Trainer()));
+    }
+
+    @Test
+    void testChangePassword() {
         Trainer trainer = new Trainer();
+        trainer.setPassword("old");
         when(trainerDAO.findByUsername("Alice.Jones")).thenReturn(Optional.of(trainer));
+        
+        trainerService.changePassword("Alice.Jones", "old", "new");
+        assertEquals("new", trainer.getPassword());
+        verify(trainerDAO).update(trainer);
+    }
 
-        Optional<Trainer> found = trainerService.getTrainerByUsername("Alice.Jones");
+    @Test
+    void testActivateDeactivate() {
+        Trainer trainer = new Trainer();
+        trainer.setPassword("pass");
+        trainer.setActive(true);
+        when(trainerDAO.findByUsername("Alice.Jones")).thenReturn(Optional.of(trainer));
+        
+        trainerService.activateDeactivate("Alice.Jones", "pass", false);
+        assertFalse(trainer.isActive());
+        verify(trainerDAO).update(trainer);
+    }
 
-        assertTrue(found.isPresent());
-        verify(trainerDAO).findByUsername("Alice.Jones");
+    @Test
+    void testGetTrainersNotAssignedToTrainee() {
+        Trainee trainee = new Trainee();
+        trainee.setPassword("pass");
+        when(traineeDAO.findByUsername("trainee")).thenReturn(Optional.of(trainee));
+        
+        trainerService.getTrainersNotAssignedToTrainee("trainee", "pass");
+        verify(trainerDAO).findNotAssignedToTrainee("trainee");
     }
 }

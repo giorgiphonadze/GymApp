@@ -46,14 +46,20 @@ public class TraineeService {
     }
 
     @Transactional
-    public void updateTrainee(Trainee trainee) {
+    public void updateTrainee(String username, String password, Trainee trainee) {
+        if (!authenticate(username, password)) {
+            throw new SecurityException("Authentication failed");
+        }
         validateTrainee(trainee);
         traineeDAO.update(trainee);
         log.info("Updated Trainee: {}", trainee.getUsername());
     }
 
     @Transactional
-    public void deleteTrainee(String username) {
+    public void deleteTrainee(String username, String password) {
+        if (!authenticate(username, password)) {
+            throw new SecurityException("Authentication failed");
+        }
         Optional<Trainee> trainee = traineeDAO.findByUsername(username);
         trainee.ifPresent(t -> {
             traineeDAO.delete(t);
@@ -62,7 +68,10 @@ public class TraineeService {
     }
 
     @Transactional(readOnly = true)
-    public Optional<Trainee> getTraineeByUsername(String username) {
+    public Optional<Trainee> getTraineeByUsername(String username, String password) {
+        if (!authenticate(username, password)) {
+            throw new SecurityException("Authentication failed");
+        }
         return traineeDAO.findByUsername(username);
     }
 
@@ -74,7 +83,10 @@ public class TraineeService {
     }
 
     @Transactional
-    public void changePassword(String username, String newPassword) {
+    public void changePassword(String username, String oldPassword, String newPassword) {
+        if (!authenticate(username, oldPassword)) {
+            throw new SecurityException("Authentication failed");
+        }
         traineeDAO.findByUsername(username).ifPresent(t -> {
             t.setPassword(newPassword);
             traineeDAO.update(t);
@@ -83,16 +95,25 @@ public class TraineeService {
     }
 
     @Transactional
-    public void activateDeactivate(String username, boolean isActive) {
-        traineeDAO.findByUsername(username).ifPresent(t -> {
-            t.setActive(isActive);
-            traineeDAO.update(t);
-            log.info("{} Trainee: {}", isActive ? "Activated" : "De-activated", username);
-        });
+    public void activateDeactivate(String username, String password, boolean isActive) {
+        if (!authenticate(username, password)) {
+            throw new SecurityException("Authentication failed");
+        }
+        Trainee t = traineeDAO.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("Trainee not found"));
+        if (t.isActive() == isActive) {
+            throw new IllegalStateException("Trainee is already " + (isActive ? "active" : "inactive"));
+        }
+        t.setActive(isActive);
+        traineeDAO.update(t);
+        log.info("{} Trainee: {}", isActive ? "Activated" : "De-activated", username);
     }
 
     @Transactional
-    public void updateTrainersList(String traineeUsername, List<String> trainerUsernames) {
+    public void updateTrainersList(String traineeUsername, String password, List<String> trainerUsernames) {
+        if (!authenticate(traineeUsername, password)) {
+            throw new SecurityException("Authentication failed");
+        }
         Optional<Trainee> traineeOpt = traineeDAO.findByUsername(traineeUsername);
         if (traineeOpt.isPresent()) {
             Trainee trainee = traineeOpt.get();

@@ -44,13 +44,29 @@ public class TrainingServiceTest {
     @Test
     void testCreateTraining() {
         Trainee trainee = new Trainee();
+        trainee.setPassword("pass");
         Trainer trainer = new Trainer();
         trainer.setSpecialization(TrainingType.YOGA);
         when(traineeDAO.findByUsername("trainee")).thenReturn(Optional.of(trainee));
         when(trainerDAO.findByUsername("trainer")).thenReturn(Optional.of(trainer));
 
-        trainingService.createTraining("trainee", "trainer", "Training 1", LocalDate.now(), Duration.ofMinutes(60));
+        trainingService.createTraining("trainee", "pass", "trainer", "Training 1", LocalDate.now(), Duration.ofMinutes(60));
 
         verify(trainingDAO).save(any(Training.class));
+    }
+
+    @Test
+    void testGetTraineeTrainingsAuthFailure() {
+        when(traineeDAO.findByUsername("trainee")).thenReturn(Optional.empty());
+        assertThrows(SecurityException.class, () -> trainingService.getTraineeTrainings("trainee", "wrong", null, null, null, null));
+    }
+
+    @Test
+    void testCreateTrainingValidation() {
+        Trainee trainee = new Trainee();
+        trainee.setPassword("pass");
+        when(traineeDAO.findByUsername("trainee")).thenReturn(Optional.of(trainee));
+        
+        assertThrows(IllegalArgumentException.class, () -> trainingService.createTraining("trainee", "pass", "trainer", "", LocalDate.now(), Duration.ZERO));
     }
 }

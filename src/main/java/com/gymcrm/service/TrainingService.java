@@ -43,7 +43,10 @@ public class TrainingService {
     }
 
     @Transactional
-    public void createTraining(String traineeUsername, String trainerUsername, String trainingName, LocalDate date, Duration duration) {
+    public void createTraining(String traineeUsername, String password, String trainerUsername, String trainingName, LocalDate date, Duration duration) {
+        if (!traineeDAO.findByUsername(traineeUsername).map(t -> t.getPassword().equals(password)).orElse(false)) {
+            throw new SecurityException("Authentication failed");
+        }
         Optional<Trainee> trainee = traineeDAO.findByUsername(traineeUsername);
         Optional<Trainer> trainer = trainerDAO.findByUsername(trainerUsername);
 
@@ -58,12 +61,18 @@ public class TrainingService {
     }
 
     @Transactional(readOnly = true)
-    public List<Training> getTraineeTrainings(String username, LocalDate fromDate, LocalDate toDate, String trainerName, String trainingTypeName) {
+    public List<Training> getTraineeTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String trainerName, String trainingTypeName) {
+        if (!traineeDAO.findByUsername(username).map(t -> t.getPassword().equals(password)).orElse(false)) {
+            throw new SecurityException("Authentication failed");
+        }
         return trainingDAO.findTraineeTrainings(username, fromDate, toDate, trainerName, trainingTypeName);
     }
 
     @Transactional(readOnly = true)
-    public List<Training> getTrainerTrainings(String username, LocalDate fromDate, LocalDate toDate, String traineeName) {
+    public List<Training> getTrainerTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String traineeName) {
+        if (!trainerDAO.findByUsername(username).map(t -> t.getPassword().equals(password)).orElse(false)) {
+            throw new SecurityException("Authentication failed");
+        }
         return trainingDAO.findTrainerTrainings(username, fromDate, toDate, traineeName);
     }
 

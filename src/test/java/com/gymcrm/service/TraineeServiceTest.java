@@ -50,19 +50,49 @@ public class TraineeServiceTest {
     @Test
     void testGetTraineeByUsername() {
         Trainee trainee = new Trainee();
+        trainee.setPassword("pass");
         when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.of(trainee));
-
-        Optional<Trainee> found = traineeService.getTraineeByUsername("John.Smith");
+        
+        Optional<Trainee> found = traineeService.getTraineeByUsername("John.Smith", "pass");
 
         assertTrue(found.isPresent());
-        verify(traineeDAO).findByUsername("John.Smith");
+        verify(traineeDAO, times(2)).findByUsername("John.Smith");
     }
 
     @Test
-    void testDeleteTrainee() {
+    void testAuthenticateFailure() {
+        when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.empty());
+        assertFalse(traineeService.authenticate("John.Smith", "pass"));
+    }
+
+    @Test
+    void testDeleteTraineeAuthFailure() {
+        when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.empty());
+        assertThrows(SecurityException.class, () -> traineeService.deleteTrainee("John.Smith", "wrong"));
+    }
+
+    @Test
+    void testActivateDeactivateNonIdempotent() {
         Trainee trainee = new Trainee();
+        trainee.setPassword("pass");
+        trainee.setActive(true);
         when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.of(trainee));
-        traineeService.deleteTrainee("John.Smith");
-        verify(traineeDAO).delete(trainee);
+
+        // Activating an already active trainee should throw IllegalStateException
+        assertThrows(IllegalStateException.class, () -> traineeService.activateDeactivate("John.Smith", "pass", true));
+        
+        // Deactivating should work
+        traineeService.activateDeactivate("John.Smith", "pass", false);
+        assertFalse(trainee.isActive());
+        verify(traineeDAO).update(trainee);
+    }
+    
+    @Test
+    void testUpdateTraineeValidation() {
+        Trainee trainee = new Trainee(null, null, null, null);
+        trainee.setPassword("pass");
+        when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.of(trainee));
+        
+        assertThrows(IllegalArgumentException.class, () -> traineeService.updateTrainee("John.Smith", "pass", trainee));
     }
 }

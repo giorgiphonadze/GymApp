@@ -31,72 +31,72 @@ public class GymFacade {
         return traineeService.createTrainee(trainee);
     }
 
-    public void updateTrainee(Trainee trainee) {
-        traineeService.updateTrainee(trainee);
+    public void updateTrainee(String username, String password, Trainee trainee) {
+        traineeService.updateTrainee(username, password, trainee);
     }
 
-    public void deleteTrainee(String username) {
-        traineeService.deleteTrainee(username);
+    public void deleteTrainee(String username, String password) {
+        traineeService.deleteTrainee(username, password);
     }
 
-    public Optional<Trainee> getTrainee(String username) {
-        return traineeService.getTraineeByUsername(username);
+    public Optional<Trainee> getTrainee(String username, String password) {
+        return traineeService.getTraineeByUsername(username, password);
     }
 
     public boolean authenticateTrainee(String username, String password) {
         return traineeService.authenticate(username, password);
     }
 
-    public void changeTraineePassword(String username, String newPassword) {
-        traineeService.changePassword(username, newPassword);
+    public void changeTraineePassword(String username, String oldPassword, String newPassword) {
+        traineeService.changePassword(username, oldPassword, newPassword);
     }
 
-    public void activateDeactivateTrainee(String username, boolean isActive) {
-        traineeService.activateDeactivate(username, isActive);
+    public void activateDeactivateTrainee(String username, String password, boolean isActive) {
+        traineeService.activateDeactivate(username, password, isActive);
     }
 
     public Trainer createTrainer(Trainer trainer) {
         return trainerService.createTrainer(trainer);
     }
 
-    public void updateTrainer(Trainer trainer) {
-        trainerService.updateTrainer(trainer);
+    public void updateTrainer(String username, String password, Trainer trainer) {
+        trainerService.updateTrainer(username, password, trainer);
     }
 
-    public Optional<Trainer> getTrainer(String username) {
-        return trainerService.getTrainerByUsername(username);
+    public Optional<Trainer> getTrainer(String username, String password) {
+        return trainerService.getTrainerByUsername(username, password);
     }
 
     public boolean authenticateTrainer(String username, String password) {
         return trainerService.authenticate(username, password);
     }
 
-    public void changeTrainerPassword(String username, String newPassword) {
-        trainerService.changePassword(username, newPassword);
+    public void changeTrainerPassword(String username, String oldPassword, String newPassword) {
+        trainerService.changePassword(username, oldPassword, newPassword);
     }
 
-    public void activateDeactivateTrainer(String username, boolean isActive) {
-        trainerService.activateDeactivate(username, isActive);
+    public void activateDeactivateTrainer(String username, String password, boolean isActive) {
+        trainerService.activateDeactivate(username, password, isActive);
     }
 
-    public void createTraining(String traineeUsername, String trainerUsername, String trainingName, LocalDate date, Duration duration) {
-        trainingService.createTraining(traineeUsername, trainerUsername, trainingName, date, duration);
+    public void createTraining(String traineeUsername, String password, String trainerUsername, String trainingName, LocalDate date, Duration duration) {
+        trainingService.createTraining(traineeUsername, password, trainerUsername, trainingName, date, duration);
     }
 
-    public List<Training> getTraineeTrainings(String username, LocalDate fromDate, LocalDate toDate, String trainerName, String trainingTypeName) {
-        return trainingService.getTraineeTrainings(username, fromDate, toDate, trainerName, trainingTypeName);
+    public List<Training> getTraineeTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String trainerName, String trainingTypeName) {
+        return trainingService.getTraineeTrainings(username, password, fromDate, toDate, trainerName, trainingTypeName);
     }
 
-    public List<Training> getTrainerTrainings(String username, LocalDate fromDate, LocalDate toDate, String traineeName) {
-        return trainingService.getTrainerTrainings(username, fromDate, toDate, traineeName);
+    public List<Training> getTrainerTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String traineeName) {
+        return trainingService.getTrainerTrainings(username, password, fromDate, toDate, traineeName);
     }
 
-    public Collection<Trainer> getTrainersNotAssignedToTrainee(String traineeUsername) {
-        return trainerService.getTrainersNotAssignedToTrainee(traineeUsername);
+    public Collection<Trainer> getTrainersNotAssignedToTrainee(String traineeUsername, String password) {
+        return trainerService.getTrainersNotAssignedToTrainee(traineeUsername, password);
     }
 
-    public void updateTraineeTrainers(String traineeUsername, List<String> trainerUsernames) {
-        traineeService.updateTrainersList(traineeUsername, trainerUsernames);
+    public void updateTraineeTrainers(String traineeUsername, String password, List<String> trainerUsernames) {
+        traineeService.updateTrainersList(traineeUsername, password, trainerUsernames);
     }
 
     public List<TrainingType> getTrainingTypes() {
