@@ -1,6 +1,7 @@
 package com.gymcrm.domain;
 
 import org.junit.jupiter.api.Test;
+import java.time.Duration;
 import java.time.LocalDate;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,7 +33,7 @@ class DomainTest {
 
     @Test
     void testTrainer() {
-        TrainingType type = new TrainingType(1L, "Yoga");
+        TrainingType type = TrainingType.YOGA;
         Trainer t1 = new Trainer("Irakli", "Kikvadze", type);
         t1.setUserId(2L);
         t1.setUsername("Irakli.Kikvadze");
@@ -51,19 +52,21 @@ class DomainTest {
 
     @Test
     void testTraining() {
-        TrainingType type = new TrainingType("Fitness");
-        Training tr1 = new Training(1L, 2L, "Workout", type, LocalDate.now(), 60);
+        TrainingType type = TrainingType.STRENGTH;
+        Trainer trainer = new Trainer(); trainer.setUserId(1L);
+        Trainee trainee = new Trainee(); trainee.setUserId(2L);
+        Training tr1 = new Training(trainer, trainee, "Workout", type, LocalDate.now(), Duration.ofMinutes(60));
         tr1.setId(10L);
 
-        assertEquals(1L, tr1.getTrainerId());
-        assertEquals(2L, tr1.getTraineeId());
+        assertEquals(trainer, tr1.getTrainer());
+        assertEquals(trainee, tr1.getTrainee());
         assertEquals("Workout", tr1.getTrainingName());
         assertEquals(type, tr1.getTrainingType());
         assertNotNull(tr1.getTrainingDate());
-        assertEquals(60, tr1.getTrainingDuration());
+        assertEquals(Duration.ofMinutes(60), tr1.getTrainingDuration());
         assertEquals(10L, tr1.getId());
 
-        Training tr2 = new Training(1L, 2L, "Workout", type, LocalDate.now(), 60);
+        Training tr2 = new Training(trainer, trainee, "Workout", type, LocalDate.now(), Duration.ofMinutes(60));
         tr2.setId(10L);
         assertEquals(tr1, tr2);
         assertEquals(tr1.hashCode(), tr2.hashCode());
@@ -75,17 +78,10 @@ class DomainTest {
 
     @Test
     void testTrainingType() {
-        TrainingType tt1 = new TrainingType(1L, "Yoga");
-        TrainingType tt2 = new TrainingType("Yoga");
+        TrainingType tt1 = TrainingType.YOGA;
         
         assertEquals("Yoga", tt1.getTrainingTypeName());
-        assertEquals(1L, tt1.getId());
-        assertEquals(tt1, tt2);
-        assertEquals(tt1.hashCode(), tt2.hashCode());
-        assertNotNull(tt1.toString());
-        
-        tt2.setTrainingTypeName("Pilates");
-        assertNotEquals(tt1, tt2);
+        assertEquals("Yoga", tt1.toString());
     }
     
     @Test
