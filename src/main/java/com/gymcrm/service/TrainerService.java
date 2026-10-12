@@ -55,49 +55,45 @@ public class TrainerService {
 
     @Transactional(readOnly = true)
     public Optional<Trainer> getTrainerByUsername(String username, String password) {
-        if (!authenticate(username, password)) {
-            throw new SecurityException("Authentication failed");
-        }
-        return trainerDAO.findByUsername(username);
+        return Optional.of(authenticateAndGet(username, password));
+    }
+
+    private Trainer authenticateAndGet(String username, String password) {
+        return trainerDAO.findByUsername(username)
+                .filter(trainer -> trainer.getPassword().equals(password))
+                .orElseThrow(() -> new SecurityException("Authentication failed"));
     }
 
     @Transactional(readOnly = true)
     public boolean authenticate(String username, String password) {
         return trainerDAO.findByUsername(username)
-                .map(t -> t.getPassword().equals(password))
+                .map(trainer -> trainer.getPassword().equals(password))
                 .orElse(false);
     }
 
     @Transactional
     public void changePassword(String username, String oldPassword, String newPassword) {
-        if (!authenticate(username, oldPassword)) {
-            throw new SecurityException("Authentication failed");
-        }
-        trainerDAO.findByUsername(username).ifPresent(t -> {
-            t.setPassword(newPassword);
-            trainerDAO.update(t);
-            log.info("Changed password for Trainer: {}", username);
-        });
+        Trainer trainer = authenticateAndGet(username, oldPassword);
+        trainer.setPassword(newPassword);
+        trainerDAO.update(trainer);
+        log.info("Changed password for Trainer: {}", username);
     }
 
     @Transactional
     public void activateDeactivate(String username, String password, boolean isActive) {
-        if (!authenticate(username, password)) {
-            throw new SecurityException("Authentication failed");
-        }
-        Trainer t = trainerDAO.findByUsername(username)
-                .orElseThrow(() -> new IllegalArgumentException("Trainer not found"));
-        if (t.isActive() == isActive) {
+        Trainer trainer = authenticateAndGet(username, password);
+        if (trainer.isActive() == isActive) {
             throw new IllegalStateException("Trainer is already " + (isActive ? "active" : "inactive"));
         }
-        t.setActive(isActive);
-        trainerDAO.update(t);
+        trainer.setActive(isActive);
+        trainerDAO.update(trainer);
         log.info("{} Trainer: {}", isActive ? "Activated" : "De-activated", username);
     }
 
     @Transactional(readOnly = true)
     public Collection<Trainer> getTrainersNotAssignedToTrainee(String traineeUsername, String password) {
-        if (!traineeDAO.findByUsername(traineeUsername).map(t -> t.getPassword().equals(password)).orElse(false)) {
+        if (!traineeDAO.findByUsername(traineeUsername)
+                .map(trainee -> trainee.getPassword().equals(password)).orElse(false)) {
             throw new SecurityException("Authentication failed");
         }
         return trainerDAO.findNotAssignedToTrainee(traineeUsername);
@@ -105,8 +101,8 @@ public class TrainerService {
 
     private void validateTrainer(Trainer trainer) {
         if (trainer.getFirstName() == null || trainer.getFirstName().isEmpty() ||
-            trainer.getLastName() == null || trainer.getLastName().isEmpty() ||
-            trainer.getSpecialization() == null) {
+                trainer.getLastName() == null || trainer.getLastName().isEmpty() ||
+                trainer.getSpecialization() == null) {
             throw new IllegalArgumentException("First name, Last name and Specialization are required");
         }
     }

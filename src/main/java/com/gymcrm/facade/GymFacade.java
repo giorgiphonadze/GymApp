@@ -79,15 +79,18 @@ public class GymFacade {
         trainerService.activateDeactivate(username, password, isActive);
     }
 
-    public void createTraining(String traineeUsername, String password, String trainerUsername, String trainingName, LocalDate date, Duration duration) {
+    public void createTraining(String traineeUsername, String password, String trainerUsername,
+                               String trainingName, LocalDate date, Duration duration) {
         trainingService.createTraining(traineeUsername, password, trainerUsername, trainingName, date, duration);
     }
 
-    public List<Training> getTraineeTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String trainerName, String trainingTypeName) {
+    public List<Training> getTraineeTrainings(String username, String password, LocalDate fromDate,
+                                              LocalDate toDate, String trainerName, String trainingTypeName) {
         return trainingService.getTraineeTrainings(username, password, fromDate, toDate, trainerName, trainingTypeName);
     }
 
-    public List<Training> getTrainerTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String traineeName) {
+    public List<Training> getTrainerTrainings(String username, String password, LocalDate fromDate,
+                                              LocalDate toDate, String traineeName) {
         return trainingService.getTrainerTrainings(username, password, fromDate, toDate, traineeName);
     }
 

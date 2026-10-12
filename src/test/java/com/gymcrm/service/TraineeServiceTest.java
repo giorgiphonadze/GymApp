@@ -56,7 +56,7 @@ public class TraineeServiceTest {
         Optional<Trainee> found = traineeService.getTraineeByUsername("John.Smith", "pass");
 
         assertTrue(found.isPresent());
-        verify(traineeDAO, times(2)).findByUsername("John.Smith");
+        verify(traineeDAO, times(1)).findByUsername("John.Smith");
     }
 
     @Test

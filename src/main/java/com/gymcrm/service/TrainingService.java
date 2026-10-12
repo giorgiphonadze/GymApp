@@ -42,37 +42,50 @@ public class TrainingService {
         this.trainerDAO = trainerDAO;
     }
 
-    @Transactional
-    public void createTraining(String traineeUsername, String password, String trainerUsername, String trainingName, LocalDate date, Duration duration) {
-        if (!traineeDAO.findByUsername(traineeUsername).map(t -> t.getPassword().equals(password)).orElse(false)) {
+    private void authenticateTrainee(String password, String traineeUsername) {
+        if (!traineeDAO.findByUsername(traineeUsername)
+                .map(trainee -> trainee.getPassword().equals(password)).orElse(false)) {
             throw new SecurityException("Authentication failed");
         }
+    }
+
+    private void authenticateTrainer(String password, String trainerUsername) {
+        if (!trainerDAO.findByUsername(trainerUsername)
+                .map(trainer -> trainer.getPassword().equals(password)).orElse(false)) {
+            throw new SecurityException("Authentication failed");
+        }
+    }
+
+    @Transactional
+    public void createTraining(String traineeUsername, String password, String trainerUsername,
+                               String trainingName, LocalDate date, Duration duration) {
+        authenticateTrainee(password, traineeUsername);
         Optional<Trainee> trainee = traineeDAO.findByUsername(traineeUsername);
         Optional<Trainer> trainer = trainerDAO.findByUsername(trainerUsername);
 
         if (trainee.isPresent() && trainer.isPresent()) {
             validateTraining(trainingName, date, duration);
-            Training training = new Training(trainer.get(), trainee.get(), trainingName, trainer.get().getSpecialization(), date, duration);
+            Training training = new Training(trainer.get(), trainee.get(),
+                    trainingName, trainer.get().getSpecialization(), date, duration);
             trainingDAO.save(training);
-            log.info("Created Training: {} for Trainee: {} and Trainer: {}", trainingName, traineeUsername, trainerUsername);
+            log.info("Created Training: {} for Trainee: {} and Trainer: {}",
+                    trainingName, traineeUsername, trainerUsername);
         } else {
             throw new IllegalArgumentException("Trainee or Trainer not found");
         }
     }
 
     @Transactional(readOnly = true)
-    public List<Training> getTraineeTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String trainerName, String trainingTypeName) {
-        if (!traineeDAO.findByUsername(username).map(t -> t.getPassword().equals(password)).orElse(false)) {
-            throw new SecurityException("Authentication failed");
-        }
+    public List<Training> getTraineeTrainings(String username, String password, LocalDate fromDate,
+                                              LocalDate toDate, String trainerName, String trainingTypeName) {
+        authenticateTrainee(password,username);
         return trainingDAO.findTraineeTrainings(username, fromDate, toDate, trainerName, trainingTypeName);
     }
 
     @Transactional(readOnly = true)
-    public List<Training> getTrainerTrainings(String username, String password, LocalDate fromDate, LocalDate toDate, String traineeName) {
-        if (!trainerDAO.findByUsername(username).map(t -> t.getPassword().equals(password)).orElse(false)) {
-            throw new SecurityException("Authentication failed");
-        }
+    public List<Training> getTrainerTrainings(String username, String password, LocalDate fromDate,
+                                              LocalDate toDate, String traineeName) {
+        authenticateTrainer(password, username);
         return trainingDAO.findTrainerTrainings(username, fromDate, toDate, traineeName);
     }
 

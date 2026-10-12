@@ -49,7 +49,8 @@ public class Training {
     @Column(nullable = false)
     private Duration trainingDuration;
 
-    public Training(Trainer trainer, Trainee trainee, String trainingName, TrainingType trainingType, LocalDate trainingDate, Duration trainingDuration) {
+    public Training(Trainer trainer, Trainee trainee, String trainingName, TrainingType trainingType,
+                    LocalDate trainingDate, Duration trainingDuration) {
         this.trainer = trainer;
         this.trainee = trainee;
         this.trainingName = trainingName;

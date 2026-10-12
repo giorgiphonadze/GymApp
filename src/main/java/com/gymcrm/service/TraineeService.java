@@ -33,6 +33,12 @@ public class TraineeService {
         this.trainerDAO = trainerDAO;
     }
 
+    private Trainee authenticateAndGet(String username, String password) {
+        return traineeDAO.findByUsername(username)
+                .filter(trainee -> trainee.getPassword().equals(password))
+                .orElseThrow(() -> new SecurityException("Authentication failed"));
+    }
+
     @Transactional
     public Trainee createTrainee(Trainee trainee) {
         validateTrainee(trainee);
@@ -57,75 +63,52 @@ public class TraineeService {
 
     @Transactional
     public void deleteTrainee(String username, String password) {
-        if (!authenticate(username, password)) {
-            throw new SecurityException("Authentication failed");
-        }
-        Optional<Trainee> trainee = traineeDAO.findByUsername(username);
-        trainee.ifPresent(t -> {
-            traineeDAO.delete(t);
-            log.info("Deleted Trainee: {}", username);
-        });
+        Trainee trainee = authenticateAndGet(username, password);
+        traineeDAO.delete(trainee);
+        log.info("Deleted Trainee: {}", username);
     }
 
     @Transactional(readOnly = true)
     public Optional<Trainee> getTraineeByUsername(String username, String password) {
-        if (!authenticate(username, password)) {
-            throw new SecurityException("Authentication failed");
-        }
-        return traineeDAO.findByUsername(username);
+        return Optional.of(authenticateAndGet(username, password));
     }
 
     @Transactional(readOnly = true)
     public boolean authenticate(String username, String password) {
         return traineeDAO.findByUsername(username)
-                .map(t -> t.getPassword().equals(password))
+                .map(trainee -> trainee.getPassword().equals(password))
                 .orElse(false);
     }
 
     @Transactional
     public void changePassword(String username, String oldPassword, String newPassword) {
-        if (!authenticate(username, oldPassword)) {
-            throw new SecurityException("Authentication failed");
-        }
-        traineeDAO.findByUsername(username).ifPresent(t -> {
-            t.setPassword(newPassword);
-            traineeDAO.update(t);
-            log.info("Changed password for Trainee: {}", username);
-        });
+        Trainee trainee = authenticateAndGet(username, oldPassword);
+        trainee.setPassword(newPassword);
+        traineeDAO.update(trainee);
+        log.info("Changed password for Trainee: {}", username);
     }
 
     @Transactional
     public void activateDeactivate(String username, String password, boolean isActive) {
-        if (!authenticate(username, password)) {
-            throw new SecurityException("Authentication failed");
-        }
-        Trainee t = traineeDAO.findByUsername(username)
-                .orElseThrow(() -> new IllegalArgumentException("Trainee not found"));
-        if (t.isActive() == isActive) {
+        Trainee trainee = authenticateAndGet(username, password);
+        if (trainee.isActive() == isActive) {
             throw new IllegalStateException("Trainee is already " + (isActive ? "active" : "inactive"));
         }
-        t.setActive(isActive);
-        traineeDAO.update(t);
+        trainee.setActive(isActive);
+        traineeDAO.update(trainee);
         log.info("{} Trainee: {}", isActive ? "Activated" : "De-activated", username);
     }
 
     @Transactional
     public void updateTrainersList(String traineeUsername, String password, List<String> trainerUsernames) {
-        if (!authenticate(traineeUsername, password)) {
-            throw new SecurityException("Authentication failed");
-        }
-        Optional<Trainee> traineeOpt = traineeDAO.findByUsername(traineeUsername);
-        if (traineeOpt.isPresent()) {
-            Trainee trainee = traineeOpt.get();
-            Set<Trainer> trainers = trainerUsernames.stream()
-                    .map(trainerDAO::findByUsername)
-                    .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .collect(Collectors.toSet());
-            trainee.setTrainers(trainers);
-            traineeDAO.update(trainee);
-            log.info("Updated trainers list for Trainee: {}", traineeUsername);
-        }
+        Trainee trainee = authenticateAndGet(traineeUsername, password);
+        Set<Trainer> trainers = trainerUsernames.stream()
+                .map(trainerDAO::findByUsername)
+                .flatMap(Optional::stream)
+                .collect(Collectors.toSet());
+        trainee.setTrainers(trainers);
+        traineeDAO.update(trainee);
+        log.info("Updated trainers list for Trainee: {}", traineeUsername);
     }
 
     private void validateTrainee(Trainee trainee) {
