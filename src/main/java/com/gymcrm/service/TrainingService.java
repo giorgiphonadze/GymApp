@@ -17,7 +17,6 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class TrainingService {
@@ -42,11 +41,10 @@ public class TrainingService {
         this.trainerDAO = trainerDAO;
     }
 
-    private void authenticateTrainee(String password, String traineeUsername) {
-        if (!traineeDAO.findByUsername(traineeUsername)
-                .map(trainee -> trainee.getPassword().equals(password)).orElse(false)) {
-            throw new SecurityException("Authentication failed");
-        }
+    private Trainee authenticateTrainee(String password, String traineeUsername) {
+        return traineeDAO.findByUsername(traineeUsername)
+                .filter(trainee -> trainee.getPassword().equals(password))
+                .orElseThrow(() -> new SecurityException("Authentication failed"));
     }
 
     private void authenticateTrainer(String password, String trainerUsername) {
@@ -59,26 +57,22 @@ public class TrainingService {
     @Transactional
     public void createTraining(String traineeUsername, String password, String trainerUsername,
                                String trainingName, LocalDate date, Duration duration) {
-        authenticateTrainee(password, traineeUsername);
-        Optional<Trainee> trainee = traineeDAO.findByUsername(traineeUsername);
-        Optional<Trainer> trainer = trainerDAO.findByUsername(trainerUsername);
+        Trainee trainee = authenticateTrainee(password, traineeUsername);
+        Trainer trainer = trainerDAO.findByUsername(trainerUsername)
+                .orElseThrow(() -> new IllegalArgumentException("Trainer not found"));
 
-        if (trainee.isPresent() && trainer.isPresent()) {
-            validateTraining(trainingName, date, duration);
-            Training training = new Training(trainer.get(), trainee.get(),
-                    trainingName, trainer.get().getSpecialization(), date, duration);
-            trainingDAO.save(training);
-            log.info("Created Training: {} for Trainee: {} and Trainer: {}",
-                    trainingName, traineeUsername, trainerUsername);
-        } else {
-            throw new IllegalArgumentException("Trainee or Trainer not found");
-        }
+        validateTraining(trainingName, date, duration);
+        Training training = new Training(trainer, trainee,
+                trainingName, trainer.getSpecialization(), date, duration);
+        trainingDAO.save(training);
+        log.info("Created Training: {} for Trainee: {} and Trainer: {}",
+                trainingName, traineeUsername, trainerUsername);
     }
 
     @Transactional(readOnly = true)
     public List<Training> getTraineeTrainings(String username, String password, LocalDate fromDate,
                                               LocalDate toDate, String trainerName, String trainingTypeName) {
-        authenticateTrainee(password,username);
+        authenticateTrainee(password, username);
         return trainingDAO.findTraineeTrainings(username, fromDate, toDate, trainerName, trainingTypeName);
     }
 
@@ -95,7 +89,8 @@ public class TrainingService {
     }
 
     private void validateTraining(String name, LocalDate date, Duration duration) {
-        if (name == null || name.isEmpty() || date == null || duration == null || duration.isNegative() || duration.isZero()) {
+        if (name == null || name.isEmpty() || date == null || duration == null
+                || duration.isNegative() || duration.isZero()) {
             throw new IllegalArgumentException("Training name, date and duration (positive) are required");
         }
     }
