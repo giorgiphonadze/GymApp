@@ -16,7 +16,7 @@ import javax.sql.DataSource;
 import java.util.Properties;
 
 @Configuration
-@ComponentScan(basePackages = "com.gymcrm")
+@ComponentScan(basePackages = {"com.gymcrm.dao", "com.gymcrm.service", "com.gymcrm.facade"})
 @PropertySource("classpath:application.properties")
 @EnableTransactionManagement
 public class AppConfig {
