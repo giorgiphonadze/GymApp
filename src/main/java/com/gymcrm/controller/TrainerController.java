@@ -1,5 +1,7 @@
 package com.gymcrm.controller;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.domain.Trainer;
 import com.gymcrm.domain.Training;
 import com.gymcrm.dto.ActivateDeactivateRequest;
@@ -11,6 +13,10 @@ import com.gymcrm.dto.TrainerRegistrationRequest;
 import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.UpdateTrainerRequest;
 import com.gymcrm.facade.GymFacade;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +41,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/trainers")
+@Tag(name = "Trainers", description = "Trainer profile management")
 public class TrainerController {
     private static final Logger log = LoggerFactory.getLogger(TrainerController.class);
     private final GymFacade gymFacade;
@@ -43,6 +50,11 @@ public class TrainerController {
         this.gymFacade = gymFacade;
     }
 
+    @Operation(summary = "Register trainer")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainer registered; username and password returned"),
+            @ApiResponse(responseCode = "400", description = "Validation failed")
+    })
     @PostMapping
     public ResponseEntity<RegistrationResponse> registerTrainer(@Valid @RequestBody TrainerRegistrationRequest request) {
         log.info("REST request to register trainer: {} {}", request.getFirstName(), request.getLastName());
@@ -52,6 +64,11 @@ public class TrainerController {
                 .body(new RegistrationResponse(created.getUsername(), created.getPassword()));
     }
 
+    @Operation(summary = "Get trainer profile")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainer profile returned"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @GetMapping("/{username}")
     public ResponseEntity<TrainerProfileResponse> getTrainerProfile(
             @PathVariable("username") String username,
@@ -65,6 +82,12 @@ public class TrainerController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Update trainer profile")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainer profile updated"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @PutMapping("/{username}")
     public ResponseEntity<TrainerProfileResponse> updateTrainerProfile(
             @PathVariable("username") String username,
@@ -75,7 +98,7 @@ public class TrainerController {
         String password = extractPassword(authHeader);
 
         Trainer existing = gymFacade.getTrainer(username, password)
-                .orElseThrow(() -> new SecurityException("Authentication failed or trainer not found"));
+                .orElseThrow(() -> new PasswordException("Authentication failed or trainer not found"));
 
         Trainer trainer = new Trainer(request.getFirstName(), request.getLastName(), existing.getSpecialization());
         trainer.setUserId(existing.getUserId());
@@ -89,6 +112,12 @@ public class TrainerController {
     }
 
 
+    @Operation(summary = "Get trainer trainings list")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainings returned"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @GetMapping("/{username}/trainings")
     public ResponseEntity<List<TrainingResponse>> getTrainerTrainings(
             @PathVariable("username") String username,
@@ -113,6 +142,13 @@ public class TrainerController {
                 .collect(Collectors.toList()));
     }
 
+    @Operation(summary = "Activate/de-activate trainer")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainer status changed"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials"),
+            @ApiResponse(responseCode = "409", description = "Trainer already in requested state")
+    })
     @PatchMapping("/{username}/active")
     public ResponseEntity<Void> activateDeactivateTrainer(
             @PathVariable("username") String username,
@@ -133,21 +169,21 @@ public class TrainerController {
                 .specialization(trainer.getSpecialization())
                 .isActive(trainer.isActive())
                 .trainees(trainer.getTrainees() != null ? trainer.getTrainees().stream()
-                        .map(t -> new TraineeInfo(t.getUsername(), t.getFirstName(), t.getLastName()))
+                        .map(trainee -> new TraineeInfo(trainee.getUsername(), trainee.getFirstName(), trainee.getLastName()))
                         .collect(Collectors.toList()) : List.of())
                 .build();
     }
 
     private String extractPassword(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Basic ")) {
-            throw new SecurityException("Missing or invalid Authorization header");
+            throw new PasswordException("Missing or invalid Authorization header");
         }
         String base64Credentials = authHeader.substring(6);
         byte[] decoded = Base64.getDecoder().decode(base64Credentials);
         String credentials = new String(decoded);
         int colonIndex = credentials.indexOf(":");
         if (colonIndex == -1) {
-            throw new SecurityException("Invalid Authorization header format");
+            throw new PasswordException("Invalid Authorization header format");
         }
         return credentials.substring(colonIndex + 1);
     }

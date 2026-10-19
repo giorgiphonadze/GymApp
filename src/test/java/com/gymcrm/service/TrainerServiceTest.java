@@ -1,5 +1,7 @@
 package com.gymcrm.service;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.dao.TraineeDAO;
 import com.gymcrm.dao.TrainerDAO;
 import com.gymcrm.domain.Trainee;
@@ -52,7 +54,7 @@ public class TrainerServiceTest {
     @Test
     void testUpdateTrainerAuthFailure() {
         when(trainerDAO.findByUsername("Alice.Jones")).thenReturn(Optional.empty());
-        assertThrows(SecurityException.class, () -> trainerService.updateTrainer("Alice.Jones", "wrong", new Trainer()));
+        assertThrows(PasswordException.class, () -> trainerService.updateTrainer("Alice.Jones", "wrong", new Trainer()));
     }
 
     @Test

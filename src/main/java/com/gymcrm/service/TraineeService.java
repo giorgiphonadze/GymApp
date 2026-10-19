@@ -1,5 +1,7 @@
 package com.gymcrm.service;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.dao.TraineeDAO;
 import com.gymcrm.dao.TrainerDAO;
 import com.gymcrm.domain.Trainee;
@@ -36,7 +38,7 @@ public class TraineeService {
     private Trainee authenticateAndGet(String username, String password) {
         return traineeDAO.findByUsername(username)
                 .filter(trainee -> trainee.getPassword().equals(password))
-                .orElseThrow(() -> new SecurityException("Authentication failed"));
+                .orElseThrow(() -> new PasswordException("Authentication failed"));
     }
 
     @Transactional
@@ -54,7 +56,7 @@ public class TraineeService {
     @Transactional
     public void updateTrainee(String username, String password, Trainee trainee) {
         if (!authenticate(username, password)) {
-            throw new SecurityException("Authentication failed");
+            throw new PasswordException("Authentication failed");
         }
         validateTrainee(trainee);
         traineeDAO.update(trainee);

@@ -1,5 +1,7 @@
 package com.gymcrm.controller;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.domain.Trainee;
 import com.gymcrm.domain.Trainer;
 import com.gymcrm.domain.Training;
@@ -12,6 +14,10 @@ import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.UpdateTraineeRequest;
 import com.gymcrm.dto.UpdateTraineeTrainersRequest;
 import com.gymcrm.facade.GymFacade;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +44,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/trainees")
+@Tag(name = "Trainees", description = "Trainee profile management")
 public class TraineeController {
     private static final Logger log = LoggerFactory.getLogger(TraineeController.class);
     private final GymFacade gymFacade;
@@ -46,6 +53,11 @@ public class TraineeController {
         this.gymFacade = gymFacade;
     }
 
+    @Operation(summary = "Register trainee")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainee registered; username and password returned"),
+            @ApiResponse(responseCode = "400", description = "Validation failed")
+    })
     @PostMapping
     public ResponseEntity<RegistrationResponse> registerTrainee(@Valid @RequestBody TraineeRegistrationRequest request) {
         log.info("REST request to register trainee: {} {}", request.getFirstName(), request.getLastName());
@@ -56,6 +68,11 @@ public class TraineeController {
                 .body(new RegistrationResponse(created.getUsername(), created.getPassword()));
     }
 
+    @Operation(summary = "Get trainee profile")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainee profile returned"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @GetMapping("/{username}")
     public ResponseEntity<TraineeProfileResponse> getTraineeProfile(
             @PathVariable("username") String username,
@@ -70,6 +87,12 @@ public class TraineeController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @Operation(summary = "Update trainee profile")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainee profile updated"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @PutMapping("/{username}")
     public ResponseEntity<TraineeProfileResponse> updateTraineeProfile(
             @PathVariable("username") String username,
@@ -83,7 +106,7 @@ public class TraineeController {
         trainee.setActive(request.getIsActive());
 
         Trainee existing = gymFacade.getTrainee(username, password)
-                .orElseThrow(() -> new SecurityException("Authentication failed or trainee not found"));
+                .orElseThrow(() -> new PasswordException("Authentication failed or trainee not found"));
         trainee.setUserId(existing.getUserId());
         trainee.setTrainers(existing.getTrainers());
         trainee.setPassword(existing.getPassword());
@@ -92,6 +115,11 @@ public class TraineeController {
         return ResponseEntity.ok(mapToTraineeProfileResponse(trainee));
     }
 
+    @Operation(summary = "Delete trainee profile")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainee and related trainings deleted"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @DeleteMapping("/{username}")
     public ResponseEntity<Void> deleteTraineeProfile(
             @PathVariable("username") String username,
@@ -103,6 +131,12 @@ public class TraineeController {
         return ResponseEntity.ok().build();
     }
 
+    @Operation(summary = "Update trainee's trainers list")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Updated trainers list returned"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @PutMapping("/{username}/trainers")
     public ResponseEntity<List<TrainerInfo>> updateTraineeTrainers(
             @PathVariable("username") String username,
@@ -120,6 +154,12 @@ public class TraineeController {
                 .collect(Collectors.toList()));
     }
 
+    @Operation(summary = "Get trainee trainings list")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainings returned"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @GetMapping("/{username}/trainings")
     public ResponseEntity<List<TrainingResponse>> getTraineeTrainings(
             @PathVariable("username") String username,
@@ -145,6 +185,11 @@ public class TraineeController {
                 .collect(Collectors.toList()));
     }
 
+    @Operation(summary = "Get active trainers not assigned to trainee")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainers returned"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
+    })
     @GetMapping("/{username}/unassigned-trainers")
     public ResponseEntity<List<TrainerInfo>> getUnassignedTrainers(
             @PathVariable("username") String username,
@@ -159,6 +204,13 @@ public class TraineeController {
                 .collect(Collectors.toList()));
     }
 
+    @Operation(summary = "Activate/de-activate trainee")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trainee status changed"),
+            @ApiResponse(responseCode = "400", description = "Validation failed"),
+            @ApiResponse(responseCode = "401", description = "Missing/invalid credentials"),
+            @ApiResponse(responseCode = "409", description = "Trainee already in requested state")
+    })
     @PatchMapping("/{username}/active")
     public ResponseEntity<Void> activateDeactivateTrainee(
             @PathVariable("username") String username,
@@ -188,7 +240,7 @@ public class TraineeController {
 
     private String extractPassword(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Basic ")) {
-            throw new SecurityException("Missing or invalid Authorization header");
+            throw new PasswordException("Missing or invalid Authorization header");
         }
         String base64Credentials = authHeader.substring(6);
         byte[] decoded = Base64.getDecoder().decode(base64Credentials);
@@ -196,7 +248,7 @@ public class TraineeController {
         // credentials = username:password
         int colonIndex = credentials.indexOf(":");
         if (colonIndex == -1) {
-            throw new SecurityException("Invalid Authorization header format");
+            throw new PasswordException("Invalid Authorization header format");
         }
         return credentials.substring(colonIndex + 1);
     }
