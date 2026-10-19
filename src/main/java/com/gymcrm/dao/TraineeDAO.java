@@ -1,30 +1,16 @@
 package com.gymcrm.dao;
 
 import com.gymcrm.domain.Trainee;
-import org.hibernate.Session;
-import org.hibernate.SessionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
 import java.util.Optional;
 
 @Repository
-public class TraineeDAO {
+public class TraineeDAO extends AbstractDAO {
     private static final Logger log = LoggerFactory.getLogger(TraineeDAO.class);
-
-    private SessionFactory sessionFactory;
-
-    @Autowired
-    public void setSessionFactory(SessionFactory sessionFactory) {
-        this.sessionFactory = sessionFactory;
-    }
-
-    private Session getCurrentSession() {
-        return sessionFactory.getCurrentSession();
-    }
 
     public Trainee save(Trainee trainee) {
         getCurrentSession().persist(trainee);

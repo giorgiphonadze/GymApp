@@ -12,14 +12,12 @@ import com.gymcrm.facade.GymFacade;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.Base64;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -36,13 +34,13 @@ public class TrainerControllerTest {
     @Mock
     private GymFacade gymFacade;
 
-    @InjectMocks
     private TrainerController trainerController;
 
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @BeforeEach
     void setUp() {
+        trainerController = new TrainerController(gymFacade, TestTokens.JWT_SERVICE);
         mockMvc = MockMvcBuilders.standaloneSetup(trainerController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -68,13 +66,21 @@ public class TrainerControllerTest {
         Trainer trainer = new Trainer("Jane", "Doe", TrainingType.YOGA);
         trainer.setUsername("Jane.Doe");
         trainer.setTrainees(Collections.emptySet());
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
+        String auth = TestTokens.trainer("Jane.Doe");
 
-        when(gymFacade.getTrainer("Jane.Doe", "pass")).thenReturn(Optional.of(trainer));
+        when(gymFacade.getTrainer("Jane.Doe")).thenReturn(Optional.of(trainer));
 
         mockMvc.perform(get("/trainers/Jane.Doe")
                 .header("Authorization", auth))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void testGetTrainerProfileWithoutCredentialsIsUnauthorized() throws Exception {
+        mockMvc.perform(get("/trainers/Jane.Doe"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(gymFacade);
     }
 
     @Test
@@ -85,22 +91,22 @@ public class TrainerControllerTest {
         existing.setUserId(2L);
         existing.setPassword("pass");
         existing.setTrainees(Collections.emptySet());
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
+        String auth = TestTokens.trainer("Jane.Doe");
 
-        when(gymFacade.getTrainer("Jane.Doe", "pass")).thenReturn(Optional.of(existing));
+        when(gymFacade.updateTrainer("Jane.Doe", "Jane", "Doe", true)).thenReturn(existing);
 
         mockMvc.perform(put("/trainers/Jane.Doe")
                 .header("Authorization", auth)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("Jane.Doe"));
     }
-
 
     @Test
     void testGetTrainerProfileNotFound() throws Exception {
-        String auth = "Basic " + Base64.getEncoder().encodeToString("nonexistent:pass".getBytes());
-        when(gymFacade.getTrainer("nonexistent", "pass")).thenReturn(Optional.empty());
+        String auth = TestTokens.trainer("nonexistent");
+        when(gymFacade.getTrainer("nonexistent")).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/trainers/nonexistent")
                 .header("Authorization", auth))
@@ -109,8 +115,8 @@ public class TrainerControllerTest {
 
     @Test
     void testGetTrainerTrainings() throws Exception {
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
-        when(gymFacade.getTrainerTrainings(eq("Jane.Doe"), eq("pass"), any(), any(), any()))
+        String auth = TestTokens.trainer("Jane.Doe");
+        when(gymFacade.getTrainerTrainings(eq("Jane.Doe"), any(), any(), any()))
                 .thenReturn(Collections.emptyList());
 
         mockMvc.perform(get("/trainers/Jane.Doe/trainings")
@@ -121,7 +127,7 @@ public class TrainerControllerTest {
     @Test
     void testActivateDeactivateTrainer() throws Exception {
         ActivateDeactivateRequest request = new ActivateDeactivateRequest("Jane.Doe", false);
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
+        String auth = TestTokens.trainer("Jane.Doe");
 
         mockMvc.perform(patch("/trainers/Jane.Doe/active")
                 .header("Authorization", auth)
@@ -129,6 +135,22 @@ public class TrainerControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        verify(gymFacade).activateDeactivateTrainer("Jane.Doe", "pass", false);
+        verify(gymFacade).activateDeactivateTrainer("Jane.Doe", false);
+    }
+
+    @Test
+    void testGetOtherTrainerProfileIsForbidden() throws Exception {
+        mockMvc.perform(get("/trainers/Someone.Else").header("Authorization", TestTokens.trainer("Jane.Doe")))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(gymFacade);
+    }
+
+    @Test
+    void testTraineeTokenCannotAccessTrainerEndpoints() throws Exception {
+        mockMvc.perform(get("/trainers/Jane.Doe").header("Authorization", TestTokens.trainee("Jane.Doe")))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(gymFacade);
     }
 }
