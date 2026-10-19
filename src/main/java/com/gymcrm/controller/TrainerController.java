@@ -1,21 +1,23 @@
 package com.gymcrm.controller;
 
-import com.gymcrm.exception.PasswordException;
-
+import com.gymcrm.config.OpenApiConfig;
 import com.gymcrm.domain.Trainer;
+import com.gymcrm.domain.UserType;
 import com.gymcrm.domain.Training;
 import com.gymcrm.dto.ActivateDeactivateRequest;
 import com.gymcrm.dto.RegistrationResponse;
 import com.gymcrm.dto.TraineeInfo;
-import com.gymcrm.dto.TrainerInfo;
 import com.gymcrm.dto.TrainerProfileResponse;
 import com.gymcrm.dto.TrainerRegistrationRequest;
 import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.UpdateTrainerRequest;
 import com.gymcrm.facade.GymFacade;
+import com.gymcrm.security.JwtService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -35,24 +37,27 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
-import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/trainers")
+@SecurityRequirement(name = OpenApiConfig.BEARER_AUTH)
 @Tag(name = "Trainers", description = "Trainer profile management")
 public class TrainerController {
     private static final Logger log = LoggerFactory.getLogger(TrainerController.class);
     private final GymFacade gymFacade;
+    private final JwtService jwtService;
 
-    public TrainerController(GymFacade gymFacade) {
+    public TrainerController(GymFacade gymFacade, JwtService jwtService) {
         this.gymFacade = gymFacade;
+        this.jwtService = jwtService;
     }
 
+    @SecurityRequirements
     @Operation(summary = "Register trainer")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Trainer registered; username and password returned"),
+            @ApiResponse(responseCode = "201", description = "Trainer registered; username and password returned"),
             @ApiResponse(responseCode = "400", description = "Validation failed")
     })
     @PostMapping
@@ -75,8 +80,8 @@ public class TrainerController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to get trainer profile: {}", username);
-        String password = extractPassword(authHeader);
-        return gymFacade.getTrainer(username, password)
+        authorize(authHeader, username);
+        return gymFacade.getTrainer(username)
                 .map(this::mapToTrainerProfileResponse)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -95,22 +100,11 @@ public class TrainerController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to update trainer profile: {}", username);
-        String password = extractPassword(authHeader);
-
-        Trainer existing = gymFacade.getTrainer(username, password)
-                .orElseThrow(() -> new PasswordException("Authentication failed or trainer not found"));
-
-        Trainer trainer = new Trainer(request.getFirstName(), request.getLastName(), existing.getSpecialization());
-        trainer.setUserId(existing.getUserId());
-        trainer.setUsername(username);
-        trainer.setActive(request.getIsActive());
-        trainer.setTrainees(existing.getTrainees());
-        trainer.setPassword(existing.getPassword());
-
-        gymFacade.updateTrainer(username, password, trainer);
-        return ResponseEntity.ok(mapToTrainerProfileResponse(trainer));
+        authorize(authHeader, username);
+        Trainer updated = gymFacade.updateTrainer(username, request.getFirstName(), request.getLastName(),
+                request.getIsActive());
+        return ResponseEntity.ok(mapToTrainerProfileResponse(updated));
     }
-
 
     @Operation(summary = "Get trainer trainings list")
     @ApiResponses({
@@ -129,8 +123,8 @@ public class TrainerController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to get trainer trainings: {}", username);
-        String password = extractPassword(authHeader);
-        List<Training> trainings = gymFacade.getTrainerTrainings(username, password, periodFrom, periodTo, traineeName);
+        authorize(authHeader, username);
+        List<Training> trainings = gymFacade.getTrainerTrainings(username, periodFrom, periodTo, traineeName);
         return ResponseEntity.ok(trainings.stream()
                 .map(training -> TrainingResponse.builder()
                         .trainingName(training.getTrainingName())
@@ -156,8 +150,8 @@ public class TrainerController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to {} trainer: {}", request.getIsActive() ? "activate" : "deactivate", username);
-        String password = extractPassword(authHeader);
-        gymFacade.activateDeactivateTrainer(username, password, request.getIsActive());
+        authorize(authHeader, username);
+        gymFacade.activateDeactivateTrainer(username, request.getIsActive());
         return ResponseEntity.ok().build();
     }
 
@@ -174,17 +168,7 @@ public class TrainerController {
                 .build();
     }
 
-    private String extractPassword(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Basic ")) {
-            throw new PasswordException("Missing or invalid Authorization header");
-        }
-        String base64Credentials = authHeader.substring(6);
-        byte[] decoded = Base64.getDecoder().decode(base64Credentials);
-        String credentials = new String(decoded);
-        int colonIndex = credentials.indexOf(":");
-        if (colonIndex == -1) {
-            throw new PasswordException("Invalid Authorization header format");
-        }
-        return credentials.substring(colonIndex + 1);
+    private void authorize(String authHeader, String username) {
+        jwtService.authenticate(authHeader).requireSelf(UserType.TRAINER, username);
     }
 }

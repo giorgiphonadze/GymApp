@@ -1,8 +1,8 @@
 package com.gymcrm.controller;
 
-import com.gymcrm.exception.PasswordException;
-
 import com.gymcrm.domain.Trainee;
+import com.gymcrm.domain.UserType;
+import com.gymcrm.config.OpenApiConfig;
 import com.gymcrm.domain.Trainer;
 import com.gymcrm.domain.Training;
 import com.gymcrm.dto.ActivateDeactivateRequest;
@@ -12,11 +12,13 @@ import com.gymcrm.dto.TraineeRegistrationRequest;
 import com.gymcrm.dto.TrainerInfo;
 import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.UpdateTraineeRequest;
-import com.gymcrm.dto.UpdateTraineeTrainersRequest;
 import com.gymcrm.facade.GymFacade;
+import com.gymcrm.security.JwtService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -37,25 +39,28 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/trainees")
+@SecurityRequirement(name = OpenApiConfig.BEARER_AUTH)
 @Tag(name = "Trainees", description = "Trainee profile management")
 public class TraineeController {
     private static final Logger log = LoggerFactory.getLogger(TraineeController.class);
     private final GymFacade gymFacade;
+    private final JwtService jwtService;
 
-    public TraineeController(GymFacade gymFacade) {
+    public TraineeController(GymFacade gymFacade, JwtService jwtService) {
         this.gymFacade = gymFacade;
+        this.jwtService = jwtService;
     }
 
+    @SecurityRequirements
     @Operation(summary = "Register trainee")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Trainee registered; username and password returned"),
+            @ApiResponse(responseCode = "201", description = "Trainee registered; username and password returned"),
             @ApiResponse(responseCode = "400", description = "Validation failed")
     })
     @PostMapping
@@ -80,8 +85,8 @@ public class TraineeController {
             String authHeader) {
 
         log.info("REST request to get trainee profile: {}", username);
-        String password = extractPassword(authHeader);
-        return gymFacade.getTrainee(username, password)
+        authorize(authHeader, username);
+        return gymFacade.getTrainee(username)
                 .map(this::mapToTraineeProfileResponse)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -100,19 +105,10 @@ public class TraineeController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to update trainee profile: {}", username);
-        String password = extractPassword(authHeader);
-        Trainee trainee = new Trainee(request.getFirstName(), request.getLastName(), request.getDateOfBirth(), request.getAddress());
-        trainee.setUsername(username);
-        trainee.setActive(request.getIsActive());
-
-        Trainee existing = gymFacade.getTrainee(username, password)
-                .orElseThrow(() -> new PasswordException("Authentication failed or trainee not found"));
-        trainee.setUserId(existing.getUserId());
-        trainee.setTrainers(existing.getTrainers());
-        trainee.setPassword(existing.getPassword());
-
-        gymFacade.updateTrainee(username, password, trainee);
-        return ResponseEntity.ok(mapToTraineeProfileResponse(trainee));
+        authorize(authHeader, username);
+        Trainee updated = gymFacade.updateTrainee(username, request.getFirstName(), request.getLastName(),
+                request.getDateOfBirth(), request.getAddress(), request.getIsActive());
+        return ResponseEntity.ok(mapToTraineeProfileResponse(updated));
     }
 
     @Operation(summary = "Delete trainee profile")
@@ -126,8 +122,8 @@ public class TraineeController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to delete trainee profile: {}", username);
-        String password = extractPassword(authHeader);
-        gymFacade.deleteTrainee(username, password);
+        authorize(authHeader, username);
+        gymFacade.deleteTrainee(username);
         return ResponseEntity.ok().build();
     }
 
@@ -144,10 +140,10 @@ public class TraineeController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to update trainers for trainee: {}", username);
-        String password = extractPassword(authHeader);
-        gymFacade.updateTraineeTrainers(username, password, trainerUsernames);
+        authorize(authHeader, username);
+        gymFacade.updateTraineeTrainers(username, trainerUsernames);
 
-        Trainee updated = gymFacade.getTrainee(username, password).get();
+        Trainee updated = gymFacade.getTrainee(username).get();
         return ResponseEntity.ok(updated.getTrainers().stream()
                 .map(trainer -> new TrainerInfo(trainer.getUsername(), trainer.getFirstName(),
                         trainer.getLastName(), trainer.getSpecialization()))
@@ -172,8 +168,8 @@ public class TraineeController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to get trainee trainings: {}", username);
-        String password = extractPassword(authHeader);
-        List<Training> trainings = gymFacade.getTraineeTrainings(username, password, periodFrom, periodTo, trainerName, trainingType);
+        authorize(authHeader, username);
+        List<Training> trainings = gymFacade.getTraineeTrainings(username, periodFrom, periodTo, trainerName, trainingType);
         return ResponseEntity.ok(trainings.stream()
                 .map(training -> TrainingResponse.builder()
                         .trainingName(training.getTrainingName())
@@ -196,8 +192,8 @@ public class TraineeController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to get unassigned trainers for trainee: {}", username);
-        String password = extractPassword(authHeader);
-        Collection<Trainer> trainers = gymFacade.getTrainersNotAssignedToTrainee(username, password);
+        authorize(authHeader, username);
+        Collection<Trainer> trainers = gymFacade.getTrainersNotAssignedToTrainee(username);
         return ResponseEntity.ok(trainers.stream()
                 .map(trainer -> new TrainerInfo(trainer.getUsername(), trainer.getFirstName(),
                         trainer.getLastName(), trainer.getSpecialization()))
@@ -218,8 +214,8 @@ public class TraineeController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to {} trainee: {}", request.getIsActive() ? "activate" : "deactivate", username);
-        String password = extractPassword(authHeader);
-        gymFacade.activateDeactivateTrainee(username, password, request.getIsActive());
+        authorize(authHeader, username);
+        gymFacade.activateDeactivateTrainee(username, request.getIsActive());
         return ResponseEntity.ok().build();
     }
 
@@ -238,18 +234,7 @@ public class TraineeController {
                 .build();
     }
 
-    private String extractPassword(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Basic ")) {
-            throw new PasswordException("Missing or invalid Authorization header");
-        }
-        String base64Credentials = authHeader.substring(6);
-        byte[] decoded = Base64.getDecoder().decode(base64Credentials);
-        String credentials = new String(decoded);
-        // credentials = username:password
-        int colonIndex = credentials.indexOf(":");
-        if (colonIndex == -1) {
-            throw new PasswordException("Invalid Authorization header format");
-        }
-        return credentials.substring(colonIndex + 1);
+    private void authorize(String authHeader, String username) {
+        jwtService.authenticate(authHeader).requireSelf(UserType.TRAINEE, username);
     }
 }
