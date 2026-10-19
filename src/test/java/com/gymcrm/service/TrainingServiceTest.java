@@ -1,5 +1,7 @@
 package com.gymcrm.service;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.dao.TraineeDAO;
 import com.gymcrm.dao.TrainerDAO;
 import com.gymcrm.dao.TrainingDAO;
@@ -58,7 +60,7 @@ public class TrainingServiceTest {
     @Test
     void testGetTraineeTrainingsAuthFailure() {
         when(traineeDAO.findByUsername("trainee")).thenReturn(Optional.empty());
-        assertThrows(SecurityException.class, () -> trainingService.getTraineeTrainings("trainee", "wrong", null, null, null, null));
+        assertThrows(PasswordException.class, () -> trainingService.getTraineeTrainings("trainee", "wrong", null, null, null, null));
     }
 
     @Test

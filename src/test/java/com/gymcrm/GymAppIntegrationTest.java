@@ -1,5 +1,7 @@
 package com.gymcrm;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.config.AppConfig;
 import com.gymcrm.facade.GymFacade;
 import com.gymcrm.domain.Trainee;
@@ -78,7 +80,7 @@ public class GymAppIntegrationTest {
 
             // 8. Delete Trainee
             facade.deleteTrainee(traineeUsername, createdTrainee.getPassword());
-            assertThrows(SecurityException.class, () -> facade.getTrainee(traineeUsername, "wrong"));
+            assertThrows(PasswordException.class, () -> facade.getTrainee(traineeUsername, "wrong"));
             
             // Verify trainings are deleted (cascade)
             // Note: Since we use H2 mem and transactions, this depends on how we query.

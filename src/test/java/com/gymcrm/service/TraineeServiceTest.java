@@ -1,5 +1,7 @@
 package com.gymcrm.service;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.dao.TraineeDAO;
 import com.gymcrm.dao.TrainerDAO;
 import com.gymcrm.domain.Trainee;
@@ -68,7 +70,7 @@ public class TraineeServiceTest {
     @Test
     void testDeleteTraineeAuthFailure() {
         when(traineeDAO.findByUsername("John.Smith")).thenReturn(Optional.empty());
-        assertThrows(SecurityException.class, () -> traineeService.deleteTrainee("John.Smith", "wrong"));
+        assertThrows(PasswordException.class, () -> traineeService.deleteTrainee("John.Smith", "wrong"));
     }
 
     @Test

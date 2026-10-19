@@ -1,5 +1,7 @@
 package com.gymcrm.service;
 
+import com.gymcrm.exception.PasswordException;
+
 import com.gymcrm.dao.TraineeDAO;
 import com.gymcrm.dao.TrainerDAO;
 import com.gymcrm.domain.Trainer;
@@ -46,7 +48,7 @@ public class TrainerService {
     @Transactional
     public void updateTrainer(String username, String password, Trainer trainer) {
         if (!authenticate(username, password)) {
-            throw new SecurityException("Authentication failed");
+            throw new PasswordException("Authentication failed");
         }
         validateTrainer(trainer);
         trainerDAO.update(trainer);
@@ -61,7 +63,7 @@ public class TrainerService {
     private Trainer authenticateAndGet(String username, String password) {
         return trainerDAO.findByUsername(username)
                 .filter(trainer -> trainer.getPassword().equals(password))
-                .orElseThrow(() -> new SecurityException("Authentication failed"));
+                .orElseThrow(() -> new PasswordException("Authentication failed"));
     }
 
     @Transactional(readOnly = true)
@@ -94,7 +96,7 @@ public class TrainerService {
     public Collection<Trainer> getTrainersNotAssignedToTrainee(String traineeUsername, String password) {
         if (!traineeDAO.findByUsername(traineeUsername)
                 .map(trainee -> trainee.getPassword().equals(password)).orElse(false)) {
-            throw new SecurityException("Authentication failed");
+            throw new PasswordException("Authentication failed");
         }
         return trainerDAO.findNotAssignedToTrainee(traineeUsername);
     }
