@@ -33,21 +33,19 @@ public class AuthenticationService {
     }
 
     public Trainee authenticateTrainee(String username, String password) {
-        return authenticate(UserType.TRAINEE, traineeDAO.findByUsername(username), username, password)
-                .orElseThrow(() -> new PasswordException("Authentication failed"));
+        return verify(UserType.TRAINEE, traineeDAO.findByUsername(username), password);
     }
 
     public Trainer authenticateTrainer(String username, String password) {
-        return authenticate(UserType.TRAINER, trainerDAO.findByUsername(username), username, password)
-                .orElseThrow(() -> new PasswordException("Authentication failed"));
+        return verify(UserType.TRAINER, trainerDAO.findByUsername(username), password);
     }
 
     public boolean isValidTrainee(String username, String password) {
-        return authenticate(UserType.TRAINEE, traineeDAO.findByUsername(username), username, password).isPresent();
+        return attempt(UserType.TRAINEE, traineeDAO.findByUsername(username), password).isPresent();
     }
 
     public boolean isValidTrainer(String username, String password) {
-        return authenticate(UserType.TRAINER, trainerDAO.findByUsername(username), username, password).isPresent();
+        return attempt(UserType.TRAINER, trainerDAO.findByUsername(username), password).isPresent();
     }
 
     public boolean login(String username, String password) {
@@ -57,32 +55,68 @@ public class AuthenticationService {
     public Optional<UserType> identify(String username, String password) {
         Optional<Trainee> trainee = traineeDAO.findByUsername(username);
         if (trainee.isPresent()) {
-            return authenticate(UserType.TRAINEE, trainee, username, password).map(user -> UserType.TRAINEE);
+            return attempt(UserType.TRAINEE, trainee, password).map(user -> UserType.TRAINEE);
         }
-        return authenticate(UserType.TRAINER, trainerDAO.findByUsername(username), username, password)
-                .map(user -> UserType.TRAINER);
+        Optional<Trainer> trainer = trainerDAO.findByUsername(username);
+        if (trainer.isEmpty()) {
+            metrics.recordAuthentication(UserType.TRAINER, false);
+            log.warn("Login failed: no trainee or trainer account matches the given username");
+            return Optional.empty();
+        }
+        return attempt(UserType.TRAINER, trainer, password).map(user -> UserType.TRAINER);
+    }
+
+    public Optional<UserType> findUserType(String username) {
+        if (traineeDAO.findByUsername(username).isPresent()) {
+            return Optional.of(UserType.TRAINEE);
+        }
+        if (trainerDAO.findByUsername(username).isPresent()) {
+            return Optional.of(UserType.TRAINER);
+        }
+        return Optional.empty();
     }
 
     public Trainee requireTrainee(String username) {
         return traineeDAO.findByUsername(username)
-                .orElseThrow(() -> new PasswordException("Authentication failed"));
+                .orElseThrow(() -> accountNotFound(UserType.TRAINEE));
     }
 
     public Trainer requireTrainer(String username) {
         return trainerDAO.findByUsername(username)
-                .orElseThrow(() -> new PasswordException("Authentication failed"));
+                .orElseThrow(() -> accountNotFound(UserType.TRAINER));
     }
 
-    private <T extends User> Optional<T> authenticate(UserType userType, Optional<T> user,
-                                                      String username, String password) {
-        Optional<T> authenticated = user.filter(candidate -> passwordMatches(candidate.getPassword(), password));
-        metrics.recordAuthentication(userType, authenticated.isPresent());
-        if (authenticated.isPresent()) {
-            log.debug("Authenticated {} '{}'", userType, username);
-        } else {
-            log.warn("Failed authentication attempt for {} '{}'", userType, username);
+    private <T extends User> Optional<T> attempt(UserType userType, Optional<T> user, String password) {
+        try {
+            return Optional.of(verify(userType, user, password));
+        } catch (PasswordException e) {
+            return Optional.empty();
         }
-        return authenticated;
+    }
+
+    private <T extends User> T verify(UserType userType, Optional<T> user, String password) {
+        if (user.isEmpty()) {
+            metrics.recordAuthentication(userType, false);
+            log.warn("Authentication failed: {} account not found", label(userType));
+            throw accountNotFound(userType);
+        }
+        if (!passwordMatches(user.get().getPassword(), password)) {
+            metrics.recordAuthentication(userType, false);
+            log.warn("Authentication failed: incorrect password for {} account", label(userType));
+            throw new PasswordException("Incorrect password for " + label(userType) + " account");
+        }
+        metrics.recordAuthentication(userType, true);
+        log.debug("Authenticated {} account", label(userType));
+        return user.get();
+    }
+
+    private static PasswordException accountNotFound(UserType userType) {
+        String label = label(userType);
+        return new PasswordException(Character.toUpperCase(label.charAt(0)) + label.substring(1) + " account not found");
+    }
+
+    private static String label(UserType userType) {
+        return userType.name().toLowerCase();
     }
 
     private static boolean passwordMatches(String expected, String actual) {

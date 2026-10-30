@@ -1,13 +1,12 @@
 package com.gymcrm.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gymcrm.domain.UserType;
 import com.gymcrm.dto.ChangePasswordRequest;
 import com.gymcrm.dto.LoginRequest;
+import com.gymcrm.dto.LoginResponse;
 import com.gymcrm.exception.GlobalExceptionHandler;
 import com.gymcrm.exception.PasswordException;
 import com.gymcrm.facade.GymFacade;
-import com.gymcrm.security.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,9 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -32,67 +29,39 @@ public class AuthControllerTest {
     @Mock
     private GymFacade gymFacade;
 
-    private AuthController authController;
-
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        authController = new AuthController(gymFacade, TestTokens.JWT_SERVICE);
-        mockMvc = MockMvcBuilders.standaloneSetup(authController)
+        mockMvc = MockMvcBuilders.standaloneSetup(new AuthController(gymFacade))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
 
     @Test
-    void testLoginSuccess() throws Exception {
-        when(gymFacade.login("user", "pass")).thenReturn(Optional.of(UserType.TRAINEE));
+    void testLoginReturnsFacadeResponse() throws Exception {
+        LoginRequest request = new LoginRequest("user", "pass");
+        when(gymFacade.login(request)).thenReturn(new LoginResponse("jwt", "Bearer", 1800));
 
         mockMvc.perform(post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new LoginRequest("user", "pass"))))
+                .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("jwt"))
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(1800))
-                .andExpect(jsonPath("$.token").isNotEmpty());
-    }
-
-    @Test
-    void testLoginReturnsTokenIssuedForTheAuthenticatedUser() throws Exception {
-        when(gymFacade.login("coach", "pass")).thenReturn(Optional.of(UserType.TRAINER));
-
-        String body = mockMvc.perform(post("/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new LoginRequest("coach", "pass"))))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-
-        String token = objectMapper.readTree(body).get("token").asText();
-        AuthenticatedUser user = TestTokens.JWT_SERVICE.authenticate("Bearer " + token);
-        assertEquals("coach", user.username());
-        assertEquals(UserType.TRAINER, user.userType());
+                .andExpect(jsonPath("$.expiresIn").value(1800));
     }
 
     @Test
     void testLoginFailure() throws Exception {
-        when(gymFacade.login("user", "pass")).thenReturn(Optional.empty());
+        when(gymFacade.login(any(LoginRequest.class)))
+                .thenThrow(new PasswordException("Login failed: invalid username or password"));
 
         mockMvc.perform(post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new LoginRequest("user", "pass"))))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void testChangePasswordSuccess() throws Exception {
-        ChangePasswordRequest request = new ChangePasswordRequest("user", "old", "new");
-
-        mockMvc.perform(put("/auth/password")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
-
-        verify(gymFacade).changeTraineePassword("user", "old", "new");
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Login failed: invalid username or password"));
     }
 
     @Test
@@ -101,6 +70,8 @@ public class AuthControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new LoginRequest("user", ""))))
                 .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(gymFacade);
     }
 
     @Test
@@ -110,30 +81,26 @@ public class AuthControllerTest {
     }
 
     @Test
-    void testChangePasswordFallsBackToTrainer() throws Exception {
-        ChangePasswordRequest request = new ChangePasswordRequest("trainer", "old", "new");
-        doThrow(new PasswordException("Authentication failed"))
-                .when(gymFacade).changeTraineePassword("trainer", "old", "new");
+    void testChangePasswordDelegatesToFacade() throws Exception {
+        ChangePasswordRequest request = new ChangePasswordRequest("user", "old", "new");
 
         mockMvc.perform(put("/auth/password")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        verify(gymFacade).changeTrainerPassword("trainer", "old", "new");
+        verify(gymFacade).changePassword(request);
     }
 
     @Test
     void testChangePasswordWrongCredentialsReturnsUnauthorized() throws Exception {
-        ChangePasswordRequest request = new ChangePasswordRequest("user", "wrong", "new");
-        doThrow(new PasswordException("Authentication failed"))
-                .when(gymFacade).changeTraineePassword("user", "wrong", "new");
-        doThrow(new PasswordException("Authentication failed"))
-                .when(gymFacade).changeTrainerPassword("user", "wrong", "new");
+        doThrow(new PasswordException("Password change failed: invalid username or old password"))
+                .when(gymFacade).changePassword(any(ChangePasswordRequest.class));
 
         mockMvc.perform(put("/auth/password")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnauthorized());
+                .content(objectMapper.writeValueAsString(new ChangePasswordRequest("user", "wrong", "new"))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Password change failed: invalid username or old password"));
     }
 }

@@ -2,9 +2,11 @@ package com.gymcrm.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.gymcrm.domain.TrainingType;
 import com.gymcrm.dto.AddTrainingRequest;
+import com.gymcrm.dto.TrainingTypeResponse;
+import com.gymcrm.exception.ForbiddenException;
 import com.gymcrm.exception.GlobalExceptionHandler;
+import com.gymcrm.exception.PasswordException;
 import com.gymcrm.facade.GymFacade;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,20 +26,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ExtendWith(MockitoExtension.class)
 public class TrainingControllerTest {
+    private static final String AUTH = "Bearer token";
 
     private MockMvc mockMvc;
 
     @Mock
     private GymFacade gymFacade;
 
-    private TrainingController trainingController;
-
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @BeforeEach
     void setUp() {
-        trainingController = new TrainingController(gymFacade, TestTokens.JWT_SERVICE);
-        mockMvc = MockMvcBuilders.standaloneSetup(trainingController)
+        mockMvc = MockMvcBuilders.standaloneSetup(new TrainingController(gymFacade))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -45,87 +45,58 @@ public class TrainingControllerTest {
     @Test
     void testAddTraining() throws Exception {
         AddTrainingRequest request = new AddTrainingRequest("trainee", "trainer", "workout", LocalDate.now(), 60);
-        String auth = TestTokens.trainee("trainee");
 
         mockMvc.perform(post("/trainings")
-                .header("Authorization", auth)
+                .header("Authorization", AUTH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        verify(gymFacade).createTraining(eq("trainee"), eq("trainer"), eq("workout"), any(), any());
+        verify(gymFacade).addTraining(AUTH, request);
     }
 
     @Test
     void testAddTrainingForAnotherTraineeIsForbidden() throws Exception {
         AddTrainingRequest request = new AddTrainingRequest("someone-else", "trainer", "workout", LocalDate.now(), 60);
+        doThrow(new ForbiddenException("Access denied: the token does not belong to the requested trainee account"))
+                .when(gymFacade).addTraining(AUTH, request);
 
         mockMvc.perform(post("/trainings")
-                .header("Authorization", TestTokens.trainee("trainee"))
+                .header("Authorization", AUTH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
-
-        verifyNoInteractions(gymFacade);
     }
 
     @Test
-    void testAddTrainingWithTrainerTokenIsForbidden() throws Exception {
-        AddTrainingRequest request = new AddTrainingRequest("trainee", "trainer", "workout", LocalDate.now(), 60);
+    void testAddTrainingWithInvalidBodyIsBadRequest() throws Exception {
+        AddTrainingRequest request = new AddTrainingRequest("", "trainer", "workout", LocalDate.now(), 60);
 
         mockMvc.perform(post("/trainings")
-                .header("Authorization", TestTokens.trainer("trainee"))
+                .header("Authorization", AUTH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isBadRequest());
 
         verifyNoInteractions(gymFacade);
     }
 
     @Test
-    void testAddTrainingWithoutTokenIsUnauthorized() throws Exception {
-        AddTrainingRequest request = new AddTrainingRequest("trainee", "trainer", "workout", LocalDate.now(), 60);
+    void testGetTrainingTypes() throws Exception {
+        when(gymFacade.getTrainingTypes(AUTH)).thenReturn(List.of(new TrainingTypeResponse("Yoga", 1L)));
 
-        mockMvc.perform(post("/trainings")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnauthorized());
-
-        verifyNoInteractions(gymFacade);
-    }
-
-    @Test
-    void testGetTrainingTypesAcceptsTraineeAndTrainerTokens() throws Exception {
-        when(gymFacade.getTrainingTypes()).thenReturn(List.of(TrainingType.YOGA));
-
-        mockMvc.perform(get("/training-types").header("Authorization", TestTokens.trainee("trainee")))
+        mockMvc.perform(get("/training-types").header("Authorization", AUTH))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].trainingType").value("Yoga"));
-        mockMvc.perform(get("/training-types").header("Authorization", TestTokens.trainer("trainer")))
-                .andExpect(status().isOk());
     }
 
     @Test
     void testGetTrainingTypesWithoutTokenIsUnauthorized() throws Exception {
+        when(gymFacade.getTrainingTypes((String) null))
+                .thenThrow(new PasswordException("Authorization header is missing"));
+
         mockMvc.perform(get("/training-types"))
-                .andExpect(status().isUnauthorized());
-
-        verify(gymFacade, never()).getTrainingTypes();
-    }
-
-    @Test
-    void testGetTrainingTypesWithInvalidTokenIsUnauthorized() throws Exception {
-        mockMvc.perform(get("/training-types").header("Authorization", "Bearer not-a-real-token"))
-                .andExpect(status().isUnauthorized());
-
-        verify(gymFacade, never()).getTrainingTypes();
-    }
-
-    @Test
-    void testGetTrainingTypesWithBasicCredentialsIsUnauthorized() throws Exception {
-        mockMvc.perform(get("/training-types").header("Authorization", "Basic dHJhaW5lZTpwYXNz"))
-                .andExpect(status().isUnauthorized());
-
-        verify(gymFacade, never()).getTrainingTypes();
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Authorization header is missing"));
     }
 }

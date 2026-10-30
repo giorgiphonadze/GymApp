@@ -1,18 +1,13 @@
 package com.gymcrm.controller;
 
 import com.gymcrm.config.OpenApiConfig;
-import com.gymcrm.domain.Trainer;
-import com.gymcrm.domain.UserType;
-import com.gymcrm.domain.Training;
 import com.gymcrm.dto.ActivateDeactivateRequest;
 import com.gymcrm.dto.RegistrationResponse;
-import com.gymcrm.dto.TraineeInfo;
 import com.gymcrm.dto.TrainerProfileResponse;
 import com.gymcrm.dto.TrainerRegistrationRequest;
 import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.UpdateTrainerRequest;
 import com.gymcrm.facade.GymFacade;
-import com.gymcrm.security.JwtService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -38,7 +33,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/trainers")
@@ -47,11 +41,9 @@ import java.util.stream.Collectors;
 public class TrainerController {
     private static final Logger log = LoggerFactory.getLogger(TrainerController.class);
     private final GymFacade gymFacade;
-    private final JwtService jwtService;
 
-    public TrainerController(GymFacade gymFacade, JwtService jwtService) {
+    public TrainerController(GymFacade gymFacade) {
         this.gymFacade = gymFacade;
-        this.jwtService = jwtService;
     }
 
     @SecurityRequirements
@@ -62,11 +54,8 @@ public class TrainerController {
     })
     @PostMapping
     public ResponseEntity<RegistrationResponse> registerTrainer(@Valid @RequestBody TrainerRegistrationRequest request) {
-        log.info("REST request to register trainer: {} {}", request.getFirstName(), request.getLastName());
-        Trainer trainer = new Trainer(request.getFirstName(), request.getLastName(), request.getSpecialization());
-        Trainer created = gymFacade.createTrainer(trainer);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new RegistrationResponse(created.getUsername(), created.getPassword()));
+        log.info("REST request to register trainer");
+        return ResponseEntity.status(HttpStatus.CREATED).body(gymFacade.registerTrainer(request));
     }
 
     @Operation(summary = "Get trainer profile")
@@ -80,11 +69,7 @@ public class TrainerController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to get trainer profile: {}", username);
-        authorize(authHeader, username);
-        return gymFacade.getTrainer(username)
-                .map(this::mapToTrainerProfileResponse)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(gymFacade.getTrainerProfile(authHeader, username));
     }
 
     @Operation(summary = "Update trainer profile")
@@ -100,10 +85,7 @@ public class TrainerController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to update trainer profile: {}", username);
-        authorize(authHeader, username);
-        Trainer updated = gymFacade.updateTrainer(username, request.getFirstName(), request.getLastName(),
-                request.getIsActive());
-        return ResponseEntity.ok(mapToTrainerProfileResponse(updated));
+        return ResponseEntity.ok(gymFacade.updateTrainerProfile(authHeader, username, request));
     }
 
     @Operation(summary = "Get trainer trainings list")
@@ -123,17 +105,7 @@ public class TrainerController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to get trainer trainings: {}", username);
-        authorize(authHeader, username);
-        List<Training> trainings = gymFacade.getTrainerTrainings(username, periodFrom, periodTo, traineeName);
-        return ResponseEntity.ok(trainings.stream()
-                .map(training -> TrainingResponse.builder()
-                        .trainingName(training.getTrainingName())
-                        .trainingDate(training.getTrainingDate())
-                        .trainingType(training.getTrainingType())
-                        .trainingDuration((int) training.getTrainingDuration().toMinutes())
-                        .traineeName(training.getTrainee().getFirstName() + " " + training.getTrainee().getLastName())
-                        .build())
-                .collect(Collectors.toList()));
+        return ResponseEntity.ok(gymFacade.getTrainerTrainings(authHeader, username, periodFrom, periodTo, traineeName));
     }
 
     @Operation(summary = "Activate/de-activate trainer")
@@ -149,26 +121,8 @@ public class TrainerController {
             @Valid @RequestBody ActivateDeactivateRequest request,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
-        log.info("REST request to {} trainer: {}", request.getIsActive() ? "activate" : "deactivate", username);
-        authorize(authHeader, username);
-        gymFacade.activateDeactivateTrainer(username, request.getIsActive());
+        log.info("REST request to change active status of trainer: {}", username);
+        gymFacade.activateDeactivateTrainer(authHeader, username, request);
         return ResponseEntity.ok().build();
-    }
-
-    private TrainerProfileResponse mapToTrainerProfileResponse(Trainer trainer) {
-        return TrainerProfileResponse.builder()
-                .username(trainer.getUsername())
-                .firstName(trainer.getFirstName())
-                .lastName(trainer.getLastName())
-                .specialization(trainer.getSpecialization())
-                .isActive(trainer.isActive())
-                .trainees(trainer.getTrainees() != null ? trainer.getTrainees().stream()
-                        .map(trainee -> new TraineeInfo(trainee.getUsername(), trainee.getFirstName(), trainee.getLastName()))
-                        .collect(Collectors.toList()) : List.of())
-                .build();
-    }
-
-    private void authorize(String authHeader, String username) {
-        jwtService.authenticate(authHeader).requireSelf(UserType.TRAINER, username);
     }
 }

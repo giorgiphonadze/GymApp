@@ -62,7 +62,8 @@ class AuthenticationServiceTest {
     void authenticateTraineeFailsOnWrongPassword() {
         when(traineeDAO.findByUsername("t")).thenReturn(Optional.of(trainee("pass")));
 
-        assertThrows(PasswordException.class, () -> service.authenticateTrainee("t", "wrong"));
+        PasswordException e = assertThrows(PasswordException.class, () -> service.authenticateTrainee("t", "wrong"));
+        assertEquals("Incorrect password for trainee account", e.getMessage());
         assertEquals(1.0, registry.get("gym.authentications")
                 .tag("userType", "trainee").tag("result", "failure").counter().count());
     }
@@ -71,7 +72,10 @@ class AuthenticationServiceTest {
     void authenticateTraineeFailsOnUnknownUser() {
         when(traineeDAO.findByUsername("t")).thenReturn(Optional.empty());
 
-        assertThrows(PasswordException.class, () -> service.authenticateTrainee("t", "pass"));
+        PasswordException e = assertThrows(PasswordException.class, () -> service.authenticateTrainee("t", "pass"));
+        assertEquals("Trainee account not found", e.getMessage());
+        assertEquals(1.0, registry.get("gym.authentications")
+                .tag("userType", "trainee").tag("result", "failure").counter().count());
     }
 
     @Test
@@ -86,7 +90,8 @@ class AuthenticationServiceTest {
     void authenticateTrainerFailsOnWrongPassword() {
         when(trainerDAO.findByUsername("tr")).thenReturn(Optional.of(trainer("pass")));
 
-        assertThrows(PasswordException.class, () -> service.authenticateTrainer("tr", "wrong"));
+        PasswordException e = assertThrows(PasswordException.class, () -> service.authenticateTrainer("tr", "wrong"));
+        assertEquals("Incorrect password for trainer account", e.getMessage());
     }
 
     @Test
@@ -162,8 +167,33 @@ class AuthenticationServiceTest {
         when(traineeDAO.findByUsername("gone")).thenReturn(Optional.empty());
         when(trainerDAO.findByUsername("gone")).thenReturn(Optional.empty());
 
-        assertThrows(PasswordException.class, () -> service.requireTrainee("gone"));
-        assertThrows(PasswordException.class, () -> service.requireTrainer("gone"));
+        assertEquals("Trainee account not found",
+                assertThrows(PasswordException.class, () -> service.requireTrainee("gone")).getMessage());
+        assertEquals("Trainer account not found",
+                assertThrows(PasswordException.class, () -> service.requireTrainer("gone")).getMessage());
+    }
+
+    @Test
+    void loginOfUnknownUserCountsFailure() {
+        when(traineeDAO.findByUsername("nobody")).thenReturn(Optional.empty());
+        when(trainerDAO.findByUsername("nobody")).thenReturn(Optional.empty());
+
+        assertEquals(Optional.empty(), service.identify("nobody", "pass"));
+        assertEquals(1.0, registry.get("gym.authentications")
+                .tag("userType", "trainer").tag("result", "failure").counter().count());
+    }
+
+    @Test
+    void findUserTypeChecksTraineesThenTrainers() {
+        when(traineeDAO.findByUsername("t")).thenReturn(Optional.of(trainee("pass")));
+        when(traineeDAO.findByUsername("tr")).thenReturn(Optional.empty());
+        when(traineeDAO.findByUsername("nobody")).thenReturn(Optional.empty());
+        when(trainerDAO.findByUsername("tr")).thenReturn(Optional.of(trainer("pass")));
+        when(trainerDAO.findByUsername("nobody")).thenReturn(Optional.empty());
+
+        assertEquals(Optional.of(UserType.TRAINEE), service.findUserType("t"));
+        assertEquals(Optional.of(UserType.TRAINER), service.findUserType("tr"));
+        assertEquals(Optional.empty(), service.findUserType("nobody"));
     }
 
     @Test

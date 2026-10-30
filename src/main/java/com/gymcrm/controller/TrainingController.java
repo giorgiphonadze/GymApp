@@ -1,11 +1,9 @@
 package com.gymcrm.controller;
 
 import com.gymcrm.config.OpenApiConfig;
-import com.gymcrm.domain.UserType;
 import com.gymcrm.dto.AddTrainingRequest;
 import com.gymcrm.dto.TrainingTypeResponse;
 import com.gymcrm.facade.GymFacade;
-import com.gymcrm.security.JwtService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -22,9 +20,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping
@@ -33,11 +29,9 @@ import java.util.stream.Collectors;
 public class TrainingController {
     private static final Logger log = LoggerFactory.getLogger(TrainingController.class);
     private final GymFacade gymFacade;
-    private final JwtService jwtService;
 
-    public TrainingController(GymFacade gymFacade, JwtService jwtService) {
+    public TrainingController(GymFacade gymFacade) {
         this.gymFacade = gymFacade;
-        this.jwtService = jwtService;
     }
 
     @Operation(summary = "Add training")
@@ -52,9 +46,7 @@ public class TrainingController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to add training: {}", request.getTrainingName());
-        authorize(authHeader, request.getTraineeUsername());
-        gymFacade.createTraining(request.getTraineeUsername(), request.getTrainerUsername(),
-                request.getTrainingName(), request.getTrainingDate(), Duration.ofMinutes(request.getTrainingDuration()));
+        gymFacade.addTraining(authHeader, request);
         return ResponseEntity.ok().build();
     }
 
@@ -69,14 +61,6 @@ public class TrainingController {
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         log.info("REST request to get training types");
-        jwtService.authenticate(authHeader);
-        return ResponseEntity.ok(gymFacade.getTrainingTypes().stream()
-                .map(trainingType -> new TrainingTypeResponse(trainingType.getTrainingTypeName(),
-                        (long) trainingType.ordinal() + 1))
-                .collect(Collectors.toList()));
-    }
-
-    private void authorize(String authHeader, String traineeUsername) {
-        jwtService.authenticate(authHeader).requireSelf(UserType.TRAINEE, traineeUsername);
+        return ResponseEntity.ok(gymFacade.getTrainingTypes(authHeader));
     }
 }
