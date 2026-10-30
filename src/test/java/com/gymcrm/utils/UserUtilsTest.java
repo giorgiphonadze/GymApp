@@ -40,7 +40,7 @@ class UserUtilsTest {
     void testCollectUsernames() {
         Trainee t1 = new Trainee(); t1.setUsername("t1");
         Trainer tr1 = new Trainer(); tr1.setUsername("tr1");
-        Trainer tr2 = new Trainer(); // no username
+        Trainer tr2 = new Trainer();
         
         Set<String> usernames = UserUtils.collectUsernames(Collections.singletonList(t1), Arrays.asList(tr1, tr2));
         assertEquals(2, usernames.size());

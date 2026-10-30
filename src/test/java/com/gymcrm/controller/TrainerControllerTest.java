@@ -2,48 +2,46 @@ package com.gymcrm.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.gymcrm.domain.Trainer;
 import com.gymcrm.domain.TrainingType;
 import com.gymcrm.dto.ActivateDeactivateRequest;
+import com.gymcrm.dto.RegistrationResponse;
+import com.gymcrm.dto.TrainerProfileResponse;
 import com.gymcrm.dto.TrainerRegistrationRequest;
+import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.UpdateTrainerRequest;
+import com.gymcrm.exception.ForbiddenException;
 import com.gymcrm.exception.GlobalExceptionHandler;
+import com.gymcrm.exception.PasswordException;
 import com.gymcrm.facade.GymFacade;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.Base64;
-import java.util.Collections;
-import java.util.Optional;
+import java.util.List;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 public class TrainerControllerTest {
+    private static final String AUTH = "Bearer token";
 
     private MockMvc mockMvc;
 
     @Mock
     private GymFacade gymFacade;
 
-    @InjectMocks
-    private TrainerController trainerController;
-
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(trainerController)
+        mockMvc = MockMvcBuilders.standaloneSetup(new TrainerController(gymFacade))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -51,84 +49,81 @@ public class TrainerControllerTest {
     @Test
     void testRegisterTrainer() throws Exception {
         TrainerRegistrationRequest request = new TrainerRegistrationRequest("Jane", "Doe", TrainingType.YOGA);
-        Trainer trainer = new Trainer("Jane", "Doe", TrainingType.YOGA);
-        trainer.setUsername("Jane.Doe");
-        trainer.setPassword("pass");
-
-        when(gymFacade.createTrainer(any(Trainer.class))).thenReturn(trainer);
+        when(gymFacade.registerTrainer(request)).thenReturn(new RegistrationResponse("Jane.Doe", "pass"));
 
         mockMvc.perform(post("/trainers")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.username").value("Jane.Doe"));
     }
 
     @Test
     void testGetTrainerProfile() throws Exception {
-        Trainer trainer = new Trainer("Jane", "Doe", TrainingType.YOGA);
-        trainer.setUsername("Jane.Doe");
-        trainer.setTrainees(Collections.emptySet());
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
+        TrainerProfileResponse profile = TrainerProfileResponse.builder()
+                .username("Jane.Doe").specialization(TrainingType.YOGA).trainees(List.of()).build();
+        when(gymFacade.getTrainerProfile(AUTH, "Jane.Doe")).thenReturn(profile);
 
-        when(gymFacade.getTrainer("Jane.Doe", "pass")).thenReturn(Optional.of(trainer));
+        mockMvc.perform(get("/trainers/Jane.Doe").header("Authorization", AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("Jane.Doe"));
+    }
 
-        mockMvc.perform(get("/trainers/Jane.Doe")
-                .header("Authorization", auth))
-                .andExpect(status().isOk());
+    @Test
+    void testGetTrainerProfileWithExpiredTokenIsUnauthorized() throws Exception {
+        when(gymFacade.getTrainerProfile(AUTH, "Jane.Doe")).thenThrow(new PasswordException("Token has expired"));
+
+        mockMvc.perform(get("/trainers/Jane.Doe").header("Authorization", AUTH))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Token has expired"));
+    }
+
+    @Test
+    void testTraineeTokenCannotAccessTrainerEndpoints() throws Exception {
+        when(gymFacade.getTrainerProfile(AUTH, "Jane.Doe")).thenThrow(new ForbiddenException(
+                "Access denied: this resource requires a trainer token, but a trainee token was provided"));
+
+        mockMvc.perform(get("/trainers/Jane.Doe").header("Authorization", AUTH))
+                .andExpect(status().isForbidden());
     }
 
     @Test
     void testUpdateTrainerProfile() throws Exception {
         UpdateTrainerRequest request = new UpdateTrainerRequest("Jane.Doe", "Jane", "Doe", true);
-        Trainer existing = new Trainer("Jane", "Doe", TrainingType.YOGA);
-        existing.setUsername("Jane.Doe");
-        existing.setUserId(2L);
-        existing.setPassword("pass");
-        existing.setTrainees(Collections.emptySet());
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
-
-        when(gymFacade.getTrainer("Jane.Doe", "pass")).thenReturn(Optional.of(existing));
+        TrainerProfileResponse profile = TrainerProfileResponse.builder()
+                .username("Jane.Doe").firstName("Jane").trainees(List.of()).build();
+        when(gymFacade.updateTrainerProfile(AUTH, "Jane.Doe", request)).thenReturn(profile);
 
         mockMvc.perform(put("/trainers/Jane.Doe")
-                .header("Authorization", auth)
+                .header("Authorization", AUTH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
-    }
-
-
-    @Test
-    void testGetTrainerProfileNotFound() throws Exception {
-        String auth = "Basic " + Base64.getEncoder().encodeToString("nonexistent:pass".getBytes());
-        when(gymFacade.getTrainer("nonexistent", "pass")).thenReturn(Optional.empty());
-
-        mockMvc.perform(get("/trainers/nonexistent")
-                .header("Authorization", auth))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("Jane.Doe"));
     }
 
     @Test
     void testGetTrainerTrainings() throws Exception {
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
-        when(gymFacade.getTrainerTrainings(eq("Jane.Doe"), eq("pass"), any(), any(), any()))
-                .thenReturn(Collections.emptyList());
+        TrainingResponse training = TrainingResponse.builder().trainingName("Morning").traineeName("John Doe").build();
+        when(gymFacade.getTrainerTrainings(AUTH, "Jane.Doe", null, null, "John")).thenReturn(List.of(training));
 
         mockMvc.perform(get("/trainers/Jane.Doe/trainings")
-                .header("Authorization", auth))
-                .andExpect(status().isOk());
+                .param("traineeName", "John")
+                .header("Authorization", AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].traineeName").value("John Doe"));
     }
 
     @Test
     void testActivateDeactivateTrainer() throws Exception {
         ActivateDeactivateRequest request = new ActivateDeactivateRequest("Jane.Doe", false);
-        String auth = "Basic " + Base64.getEncoder().encodeToString("Jane.Doe:pass".getBytes());
 
         mockMvc.perform(patch("/trainers/Jane.Doe/active")
-                .header("Authorization", auth)
+                .header("Authorization", AUTH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk());
 
-        verify(gymFacade).activateDeactivateTrainer("Jane.Doe", "pass", false);
+        verify(gymFacade).activateDeactivateTrainer(AUTH, "Jane.Doe", request);
     }
 }

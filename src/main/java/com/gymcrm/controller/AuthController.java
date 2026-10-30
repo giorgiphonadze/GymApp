@@ -2,9 +2,11 @@ package com.gymcrm.controller;
 
 import com.gymcrm.dto.ChangePasswordRequest;
 import com.gymcrm.dto.LoginRequest;
-import com.gymcrm.exception.PasswordException;
+import com.gymcrm.dto.LoginResponse;
 import com.gymcrm.facade.GymFacade;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,21 +32,17 @@ public class AuthController {
     }
 
     @Operation(summary = "Login",
-            description = "Authenticates a trainee or trainer. Credentials are passed in the request body.")
+            description = "Authenticates a trainee or trainer and returns a JWT. Send it on every other request "
+                    + "as `Authorization: Bearer <token>`; it expires after the returned number of seconds.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Authentication successful"),
+            @ApiResponse(responseCode = "200", description = "Authentication successful; token returned", content = @Content(schema = @Schema(implementation = LoginResponse.class))),
             @ApiResponse(responseCode = "400", description = "Validation failed"),
             @ApiResponse(responseCode = "401", description = "Invalid username or password")
     })
     @PostMapping("/login")
-    public ResponseEntity<Void> login(@Valid @RequestBody LoginRequest request) {
-        log.info("REST request to login: {}", request.getUsername());
-        boolean authenticated = gymFacade.authenticateTrainee(request.getUsername(), request.getPassword())
-                || gymFacade.authenticateTrainer(request.getUsername(), request.getPassword());
-        if (!authenticated) {
-            throw new PasswordException("Invalid username or password");
-        }
-        return ResponseEntity.ok().build();
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        log.info("REST request to login");
+        return ResponseEntity.ok(gymFacade.login(request));
     }
 
     @Operation(summary = "Change password",
@@ -56,18 +54,8 @@ public class AuthController {
     })
     @PutMapping("/password")
     public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
-        log.info("REST request to change password: {}", request.getUsername());
-        try {
-            gymFacade.changeTraineePassword(request.getUsername(), request.getOldPassword(), request.getNewPassword());
-        } catch (PasswordException traineeFailure) {
-            log.debug("User {} is not a trainee or trainee credentials did not match", request.getUsername());
-            try {
-                gymFacade.changeTrainerPassword(request.getUsername(), request.getOldPassword(), request.getNewPassword());
-            } catch (PasswordException trainerFailure) {
-                log.error("Failed to change password for user: {}", request.getUsername());
-                throw new PasswordException("Invalid username or old password", trainerFailure);
-            }
-        }
+        log.info("REST request to change password");
+        gymFacade.changePassword(request);
         return ResponseEntity.ok().build();
     }
 }

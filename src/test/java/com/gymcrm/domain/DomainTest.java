@@ -91,9 +91,7 @@ class DomainTest {
         Trainer tr1 = new Trainer("C", "D", null);
         tr1.setUserId(1L);
         
-        // Even if IDs are same, if they are different classes, are they equal?
-        // User.equals uses instanceof User.
-        assertEquals(t1, tr1); // Currently it just checks userId
+        assertEquals(t1, tr1);
         
         t1.setUserId(null);
         assertNotEquals(t1, tr1);
