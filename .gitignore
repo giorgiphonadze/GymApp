@@ -37,3 +37,10 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Docker ###
+.env
+
+### Runtime Logs###
+run.err
+run.log
