@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -29,6 +31,8 @@ class TrainerServiceTest {
     @Mock
     private TraineeDAO traineeDAO;
 
+    private static final PasswordEncoder ENCODER = new BCryptPasswordEncoder(4);
+
     private SimpleMeterRegistry meterRegistry;
     private TrainerService trainerService;
 
@@ -37,12 +41,12 @@ class TrainerServiceTest {
         meterRegistry = new SimpleMeterRegistry();
         GymMetrics metrics = new GymMetrics(meterRegistry);
         trainerService = new TrainerService(trainerDAO, traineeDAO,
-                new AuthenticationService(traineeDAO, trainerDAO, metrics), metrics);
+                new AuthenticationService(traineeDAO, trainerDAO, ENCODER, metrics), ENCODER, metrics);
     }
 
     private Trainer trainerWithPassword(String password) {
         Trainer trainer = new Trainer("Alice", "Jones", TrainingType.YOGA);
-        trainer.setPassword(password);
+        trainer.setPassword(ENCODER.encode(password));
         return trainer;
     }
 
@@ -53,10 +57,11 @@ class TrainerServiceTest {
         when(traineeDAO.findAll()).thenReturn(Collections.emptyList());
         when(trainerDAO.save(any(Trainer.class))).thenAnswer(i -> i.getArgument(0));
 
-        Trainer created = trainerService.createTrainer(trainer);
+        CreatedUser<Trainer> created = trainerService.createTrainer(trainer);
 
-        assertEquals("Alice.Jones", created.getUsername());
-        assertNotNull(created.getPassword());
+        assertEquals("Alice.Jones", created.user().getUsername());
+        assertNotNull(created.rawPassword());
+        assertTrue(ENCODER.matches(created.rawPassword(), created.user().getPassword()));
         verify(trainerDAO).save(trainer);
         assertEquals(1.0, meterRegistry.get("gym.registrations").tag("userType", "trainer").counter().count());
     }
@@ -125,7 +130,7 @@ class TrainerServiceTest {
 
         trainerService.changePassword("Alice.Jones", "old", "new");
 
-        assertEquals("new", trainer.getPassword());
+        assertTrue(ENCODER.matches("new", trainer.getPassword()));
         verify(trainerDAO).update(trainer);
     }
 

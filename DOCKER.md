@@ -20,8 +20,8 @@ Without Compose (manual equivalent):
 ```powershell
 docker build -t gymcrm-app:1.0 .
 docker network create gymcrm-net
-docker run -d --name gymcrm-db --network gymcrm-net -e POSTGRES_DB=gymcrm_dev -e POSTGRES_USER=gymcrm_dev -e POSTGRES_PASSWORD=change-me postgres:16-alpine
-docker run -d --name gymcrm-app --network gymcrm-net -p 8080:8080 -e SPRING_PROFILES_ACTIVE=dev -e DB_URL=jdbc:postgresql://gymcrm-db:5432/gymcrm_dev -e DB_USERNAME=gymcrm_dev -e DB_PASSWORD=change-me -e JWT_SECRET=random-string-of-at-least-32-chars gymcrm-app:1.0
+docker run -d --name gymcrm-db --network gymcrm-net -e POSTGRES_DB=gymcrm-dev -e POSTGRES_USER=gymcrm_dev -e POSTGRES_PASSWORD=change-me postgres:16-alpine
+docker run -d --name gymcrm-app --network gymcrm-net -p 8080:8080 -e SPRING_PROFILES_ACTIVE=dev -e DB_URL=jdbc:postgresql://gymcrm-db:5432/gymcrm-dev -e DB_USERNAME=gymcrm_dev -e DB_PASSWORD=change-me -e JWT_SECRET=random-string-of-at-least-32-chars gymcrm-app:1.0
 ```
 
 ## 3. Verify

@@ -4,6 +4,7 @@ import com.gymcrm.config.OpenApiConfig;
 import com.gymcrm.dto.AddTrainingRequest;
 import com.gymcrm.dto.TrainingTypeResponse;
 import com.gymcrm.facade.GymFacade;
+import com.gymcrm.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -13,10 +14,10 @@ import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -43,10 +44,10 @@ public class TrainingController {
     @PostMapping("/trainings")
     public ResponseEntity<Void> addTraining(
             @Valid @RequestBody AddTrainingRequest request,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to add training: {}", request.getTrainingName());
-        gymFacade.addTraining(authHeader, request);
+        gymFacade.addTraining(user, request);
         return ResponseEntity.ok().build();
     }
 
@@ -57,10 +58,8 @@ public class TrainingController {
             @ApiResponse(responseCode = "401", description = "Missing/invalid credentials")
     })
     @GetMapping("/training-types")
-    public ResponseEntity<List<TrainingTypeResponse>> getTrainingTypes(
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
-
+    public ResponseEntity<List<TrainingTypeResponse>> getTrainingTypes() {
         log.info("REST request to get training types");
-        return ResponseEntity.ok(gymFacade.getTrainingTypes(authHeader));
+        return ResponseEntity.ok(gymFacade.listTrainingTypes());
     }
 }

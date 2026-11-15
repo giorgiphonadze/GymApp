@@ -9,6 +9,7 @@ import com.gymcrm.metrics.GymMetrics;
 import com.gymcrm.utils.UserUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,28 +26,31 @@ public class TraineeService {
     private final TraineeDAO traineeDAO;
     private final TrainerDAO trainerDAO;
     private final AuthenticationService authenticationService;
+    private final PasswordEncoder passwordEncoder;
     private final GymMetrics metrics;
 
-    public TraineeService(TraineeDAO traineeDAO, TrainerDAO trainerDAO,
-                          AuthenticationService authenticationService, GymMetrics metrics) {
+    public TraineeService(TraineeDAO traineeDAO, TrainerDAO trainerDAO, AuthenticationService authenticationService,
+                          PasswordEncoder passwordEncoder, GymMetrics metrics) {
         this.traineeDAO = traineeDAO;
         this.trainerDAO = trainerDAO;
         this.authenticationService = authenticationService;
+        this.passwordEncoder = passwordEncoder;
         this.metrics = metrics;
     }
 
     @Transactional
-    public Trainee createTrainee(Trainee trainee) {
+    public CreatedUser<Trainee> createTrainee(Trainee trainee) {
         log.debug("Creating trainee {} {}", trainee.getFirstName(), trainee.getLastName());
         validateTrainee(trainee);
         Set<String> existingUsernames = UserUtils.collectUsernames(traineeDAO.findAll(), trainerDAO.findAll());
         trainee.setUsername(UserUtils.generateUsername(trainee.getFirstName(), trainee.getLastName(), existingUsernames));
-        trainee.setPassword(UserUtils.generatePassword());
+        String rawPassword = UserUtils.generatePassword();
+        trainee.setPassword(passwordEncoder.encode(rawPassword));
         trainee.setActive(true);
         Trainee saved = traineeDAO.save(trainee);
         metrics.recordRegistration(UserType.TRAINEE);
         log.info("Created Trainee: {}", saved.getUsername());
-        return saved;
+        return new CreatedUser<>(saved, rawPassword);
     }
 
     @Transactional
@@ -84,7 +88,7 @@ public class TraineeService {
     @Transactional
     public void changePassword(String username, String oldPassword, String newPassword) {
         Trainee trainee = authenticationService.authenticateTrainee(username, oldPassword);
-        trainee.setPassword(newPassword);
+        trainee.setPassword(passwordEncoder.encode(newPassword));
         traineeDAO.update(trainee);
         log.info("Changed password for Trainee: {}", username);
     }

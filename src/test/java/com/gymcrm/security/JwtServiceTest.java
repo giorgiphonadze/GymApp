@@ -2,7 +2,6 @@ package com.gymcrm.security;
 
 import com.gymcrm.domain.UserType;
 import com.gymcrm.exception.ForbiddenException;
-import com.gymcrm.exception.PasswordException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
@@ -18,6 +17,8 @@ import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class JwtServiceTest {
@@ -33,12 +34,12 @@ class JwtServiceTest {
     }
 
     private static void assertRejected(String expectedMessage, Executable executable) {
-        assertEquals(expectedMessage, assertThrows(PasswordException.class, executable).getMessage());
+        assertEquals(expectedMessage, assertThrows(InvalidTokenException.class, executable).getMessage());
     }
 
-    private static String signedToken(String subject, String userType) {
+    private static String signedToken(String id, String subject, String userType) {
         SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
-        var builder = Jwts.builder().subject(subject).expiration(Date.from(NOW.plus(Duration.ofHours(1))));
+        var builder = Jwts.builder().id(id).subject(subject).expiration(Date.from(NOW.plus(Duration.ofHours(1))));
         if (userType != null) {
             builder.claim("userType", userType);
         }
@@ -46,13 +47,23 @@ class JwtServiceTest {
     }
 
     @Test
-    void tokenRoundTripsUsernameAndUserType() {
+    void tokenRoundTripsUsernameUserTypeIdAndExpiry() {
         JwtService service = serviceAt(NOW);
 
-        AuthenticatedUser user = service.authenticate("Bearer " + service.generateToken("John.Doe", UserType.TRAINEE));
+        VerifiedToken token = service.verify(service.generateToken("John.Doe", UserType.TRAINEE));
 
-        assertEquals("John.Doe", user.username());
-        assertEquals(UserType.TRAINEE, user.userType());
+        assertEquals("John.Doe", token.user().username());
+        assertEquals(UserType.TRAINEE, token.user().userType());
+        assertNotNull(token.id());
+        assertEquals(NOW.plus(Duration.ofMinutes(30)), token.expiresAt());
+    }
+
+    @Test
+    void everyTokenHasItsOwnIdentifier() {
+        JwtService service = serviceAt(NOW);
+
+        assertNotEquals(service.verify(service.generateToken("John.Doe", UserType.TRAINEE)).id(),
+                service.verify(service.generateToken("John.Doe", UserType.TRAINEE)).id());
     }
 
     @Test
@@ -62,26 +73,23 @@ class JwtServiceTest {
 
     @Test
     void tokenIsValidJustBeforeExpiryAndRejectedAfterwards() {
-        String token = "Bearer " + serviceAt(NOW).generateToken("John.Doe", UserType.TRAINEE);
+        String token = serviceAt(NOW).generateToken("John.Doe", UserType.TRAINEE);
 
-        assertDoesNotThrow(() -> serviceAt(NOW.plus(Duration.ofMinutes(29))).authenticate(token));
-        assertRejected("Token has expired", () -> serviceAt(NOW.plus(Duration.ofMinutes(31))).authenticate(token));
+        assertDoesNotThrow(() -> serviceAt(NOW.plus(Duration.ofMinutes(29))).verify(token));
+        assertRejected("Token has expired", () -> serviceAt(NOW.plus(Duration.ofMinutes(31))).verify(token));
     }
 
     @Test
-    void missingOrNonBearerHeaderIsRejected() {
+    void emptyTokenIsRejected() {
         JwtService service = serviceAt(NOW);
 
-        assertRejected("Authorization header is missing", () -> service.authenticate(null));
-        assertRejected("Authorization header is missing", () -> service.authenticate(" "));
-        assertRejected("Authorization header must use the Bearer scheme",
-                () -> service.authenticate("Basic dXNlcjpwYXNz"));
-        assertRejected("Bearer token is empty", () -> service.authenticate("Bearer "));
+        assertRejected("Bearer token is empty", () -> service.verify(null));
+        assertRejected("Bearer token is empty", () -> service.verify(" "));
     }
 
     @Test
     void garbageTokenIsRejected() {
-        assertRejected("Token is malformed", () -> serviceAt(NOW).authenticate("Bearer not.a.jwt"));
+        assertRejected("Token is malformed", () -> serviceAt(NOW).verify("not.a.jwt"));
     }
 
     @Test
@@ -90,36 +98,43 @@ class JwtServiceTest {
                 clockAt(NOW));
         String forged = other.generateToken("John.Doe", UserType.TRAINEE);
 
-        assertRejected("Token signature is invalid", () -> serviceAt(NOW).authenticate("Bearer " + forged));
+        assertRejected("Token signature is invalid", () -> serviceAt(NOW).verify(forged));
     }
 
     @Test
     void unsignedTokenIsRejected() {
-        String unsigned = Jwts.builder().subject("John.Doe").claim("userType", "TRAINEE")
+        String unsigned = Jwts.builder().id("id").subject("John.Doe").claim("userType", "TRAINEE")
                 .expiration(Date.from(NOW.plus(Duration.ofHours(1)))).compact();
 
-        assertRejected("Token must be signed", () -> serviceAt(NOW).authenticate("Bearer " + unsigned));
+        assertRejected("Token must be signed", () -> serviceAt(NOW).verify(unsigned));
     }
 
     @Test
     void tokenWithUnknownUserTypeIsRejected() {
-        String token = signedToken("John.Doe", "ADMIN");
+        String token = signedToken("id", "John.Doe", "ADMIN");
 
-        assertRejected("Token contains an unknown user type", () -> serviceAt(NOW).authenticate("Bearer " + token));
+        assertRejected("Token contains an unknown user type", () -> serviceAt(NOW).verify(token));
     }
 
     @Test
     void tokenWithoutUserTypeIsRejected() {
-        String token = signedToken("John.Doe", null);
+        String token = signedToken("id", "John.Doe", null);
 
-        assertRejected("Token does not specify a user type", () -> serviceAt(NOW).authenticate("Bearer " + token));
+        assertRejected("Token does not specify a user type", () -> serviceAt(NOW).verify(token));
     }
 
     @Test
     void tokenWithoutSubjectIsRejected() {
-        String token = signedToken(null, "TRAINEE");
+        String token = signedToken("id", null, "TRAINEE");
 
-        assertRejected("Token does not identify a user", () -> serviceAt(NOW).authenticate("Bearer " + token));
+        assertRejected("Token does not identify a user", () -> serviceAt(NOW).verify(token));
+    }
+
+    @Test
+    void tokenWithoutIdentifierIsRejected() {
+        String token = signedToken(null, "John.Doe", "TRAINEE");
+
+        assertRejected("Token does not have an identifier", () -> serviceAt(NOW).verify(token));
     }
 
     @Test

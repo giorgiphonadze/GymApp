@@ -3,12 +3,15 @@ package com.gymcrm;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gymcrm.domain.TrainingType;
+import com.gymcrm.facade.GymFacade;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -16,11 +19,16 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -34,6 +42,10 @@ class RestApiIntegrationTest {
     private MockMvc mockMvc;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private GymFacade facade;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     private JsonNode register(String path, String body) throws Exception {
         String response = mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(body))
@@ -56,6 +68,10 @@ class RestApiIntegrationTest {
         return "Bearer " + objectMapper.readTree(response).get("token").asText();
     }
 
+    private static String registrationToken(JsonNode registration) {
+        return "Bearer " + registration.get("token").asText();
+    }
+
     @Test
     void loginReturnsTokenThatAuthorizesRequestsToOwnProfileOnly() throws Exception {
         JsonNode credentials = register("/trainees",
@@ -74,9 +90,58 @@ class RestApiIntegrationTest {
         mockMvc.perform(get("/trainees/" + other.get("username").asText()).header("Authorization", token))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/trainees/" + username).header("Authorization", token + "tampered"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Token signature is invalid"));
         mockMvc.perform(get("/trainees/" + username))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
+    }
+
+    @Test
+    void onlyRegistrationAndLoginArePublic() throws Exception {
+        String[] protectedGets = {"/trainees/Someone", "/trainees/Someone/trainings",
+                "/trainees/Someone/unassigned-trainers", "/trainers/Someone", "/trainers/Someone/trainings",
+                "/training-types", "/actuator/metrics"};
+        for (String path : protectedGets) {
+            mockMvc.perform(get(path))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(content().string(containsString("Authentication required")));
+        }
+        mockMvc.perform(put("/auth/password").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"a\",\"oldPassword\":\"b\",\"newPassword\":\"c\"}"))
                 .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/trainings").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/trainees/Someone")).andExpect(status().isUnauthorized());
+
+        register("/trainees", "{\"firstName\":\"Public\",\"lastName\":\"Trainee\"}");
+        register("/trainers", "{\"firstName\":\"Public\",\"lastName\":\"Trainer\",\"specialization\":\"YOGA\"}");
+    }
+
+    @Test
+    void registrationReturnsGeneratedCredentialsAndUsableToken() throws Exception {
+        JsonNode registration = register("/trainers",
+                "{\"firstName\":\"Fresh\",\"lastName\":\"Coach\",\"specialization\":\"YOGA\"}");
+        String username = registration.get("username").asText();
+
+        assertEquals("Fresh.Coach", username);
+        assertEquals(10, registration.get("password").asText().length());
+        assertEquals("Bearer", registration.get("tokenType").asText());
+        mockMvc.perform(get("/trainers/" + username).header("Authorization", registrationToken(registration)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstName").value("Fresh"));
+    }
+
+    @Test
+    void passwordsAreStoredAsSaltedHashes() throws Exception {
+        JsonNode first = register("/trainees", "{\"firstName\":\"Hash\",\"lastName\":\"Check\"}");
+        String rawPassword = first.get("password").asText();
+        String storedHash = facade.getTrainee(first.get("username").asText()).orElseThrow().getPassword();
+
+        assertNotEquals(rawPassword, storedHash);
+        assertTrue(storedHash.startsWith("$2a$"));
+        assertTrue(passwordEncoder.matches(rawPassword, storedHash));
+        assertNotEquals(passwordEncoder.encode(rawPassword), passwordEncoder.encode(rawPassword));
     }
 
     @Test
@@ -88,6 +153,97 @@ class RestApiIntegrationTest {
 
         mockMvc.perform(get("/trainees/" + username).header("Authorization", basic))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void threeFailedLoginsBlockTheUserForFiveMinutes() throws Exception {
+        JsonNode credentials = register("/trainees", "{\"firstName\":\"Brute\",\"lastName\":\"Force\"}");
+        String username = credentials.get("username").asText();
+        JsonNode bystander = register("/trainees", "{\"firstName\":\"Brute\",\"lastName\":\"Bystander\"}");
+
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                            .content(loginBody(username, "wrong" + i)))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(username, credentials.get("password").asText())))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "300"))
+                .andExpect(content().string("Too many failed login attempts. Try again in 5 minute(s)"));
+        login(bystander);
+    }
+
+    @Test
+    void successfulLoginResetsFailedAttempts() throws Exception {
+        JsonNode credentials = register("/trainees", "{\"firstName\":\"Reset\",\"lastName\":\"Attempts\"}");
+        String username = credentials.get("username").asText();
+
+        for (int round = 0; round < 2; round++) {
+            for (int i = 0; i < 2; i++) {
+                mockMvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                                .content(loginBody(username, "wrong")))
+                        .andExpect(status().isUnauthorized());
+            }
+            login(credentials);
+        }
+    }
+
+    @Test
+    void logoutRevokesTheToken() throws Exception {
+        JsonNode credentials = register("/trainees", "{\"firstName\":\"Log\",\"lastName\":\"Out\"}");
+        String username = credentials.get("username").asText();
+        String token = login(credentials);
+        String otherSession = login(credentials);
+
+        mockMvc.perform(get("/trainees/" + username).header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/auth/logout").header("Authorization", token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/trainees/" + username).header("Authorization", token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string("Token has been revoked"));
+        mockMvc.perform(post("/auth/logout").header("Authorization", token))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/trainees/" + username).header("Authorization", otherSession))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/trainees/" + username).header("Authorization", login(credentials)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void logoutRequiresAuthentication() throws Exception {
+        mockMvc.perform(post("/auth/logout"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string(containsString("Authentication required")));
+    }
+
+    @Test
+    void corsPreflightIsAllowedForConfiguredOriginsOnly() throws Exception {
+        mockMvc.perform(options("/trainees/Someone")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("GET")))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("Authorization")));
+
+        mockMvc.perform(options("/trainees/Someone")
+                        .header(HttpHeaders.ORIGIN, "http://evil.example")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void corsHeadersAreAddedToActualRequests() throws Exception {
+        mockMvc.perform(post("/trainees").contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.ORIGIN, "http://localhost:4200")
+                        .content("{\"firstName\":\"Cors\",\"lastName\":\"Trainee\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:4200"));
     }
 
     @Test
@@ -201,6 +357,7 @@ class RestApiIntegrationTest {
         for (JsonNode user : new JsonNode[]{trainee, trainer}) {
             String username = user.get("username").asText();
             mockMvc.perform(put("/auth/password").contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", registrationToken(user))
                             .content("{\"username\":\"" + username + "\",\"oldPassword\":\""
                                     + user.get("password").asText() + "\",\"newPassword\":\"brandNew123\"}"))
                     .andExpect(status().isOk());
@@ -208,6 +365,19 @@ class RestApiIntegrationTest {
                             .content(loginBody(username, "brandNew123")))
                     .andExpect(status().isOk());
         }
+    }
+
+    @Test
+    void passwordOfAnotherUserCannotBeChanged() throws Exception {
+        JsonNode attacker = register("/trainees", "{\"firstName\":\"Pw\",\"lastName\":\"Attacker\"}");
+        JsonNode victim = register("/trainees", "{\"firstName\":\"Pw\",\"lastName\":\"Victim\"}");
+
+        mockMvc.perform(put("/auth/password").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", registrationToken(attacker))
+                        .content("{\"username\":\"" + victim.get("username").asText() + "\",\"oldPassword\":\""
+                                + victim.get("password").asText() + "\",\"newPassword\":\"stolen123\"}"))
+                .andExpect(status().isForbidden());
+        login(victim);
     }
 
     @Test
@@ -232,6 +402,7 @@ class RestApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].trainingType").value("Yoga"));
     }
+
     @Test
     void invalidRegistrationIsRejected() throws Exception {
         mockMvc.perform(post("/trainees").contentType(MediaType.APPLICATION_JSON)
@@ -255,7 +426,8 @@ class RestApiIntegrationTest {
 
     @Test
     void prometheusEndpointExposesCustomMetrics() throws Exception {
-        register("/trainees", "{\"firstName\":\"Metric\",\"lastName\":\"Check\"}");
+        JsonNode credentials = register("/trainees", "{\"firstName\":\"Metric\",\"lastName\":\"Check\"}");
+        login(credentials);
 
         mockMvc.perform(get("/actuator/prometheus"))
                 .andExpect(status().isOk())
@@ -265,7 +437,11 @@ class RestApiIntegrationTest {
     }
 
     @Test
-    void unknownResourceReturnsNotFound() throws Exception {
-        mockMvc.perform(get("/does-not-exist")).andExpect(status().isNotFound());
+    void unknownResourceReturnsNotFoundForAuthenticatedUser() throws Exception {
+        JsonNode credentials = register("/trainees", "{\"firstName\":\"Lost\",\"lastName\":\"User\"}");
+
+        mockMvc.perform(get("/does-not-exist").header("Authorization", registrationToken(credentials)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/does-not-exist")).andExpect(status().isUnauthorized());
     }
 }

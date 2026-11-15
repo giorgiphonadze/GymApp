@@ -16,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -44,7 +45,7 @@ class TrainingServiceTest {
         meterRegistry = new SimpleMeterRegistry();
         GymMetrics metrics = new GymMetrics(meterRegistry);
         trainingService = new TrainingService(trainingDAO, trainerDAO,
-                new AuthenticationService(traineeDAO, trainerDAO, metrics), metrics);
+                new AuthenticationService(traineeDAO, trainerDAO, new BCryptPasswordEncoder(4), metrics), metrics);
     }
 
     private Trainee traineeWithPassword(String password) {

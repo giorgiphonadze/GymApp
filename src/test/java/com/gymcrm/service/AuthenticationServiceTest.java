@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
 
@@ -27,25 +29,40 @@ class AuthenticationServiceTest {
     @Mock
     private TrainerDAO trainerDAO;
 
+    private static final PasswordEncoder ENCODER = new BCryptPasswordEncoder(4);
+
     private SimpleMeterRegistry registry;
     private AuthenticationService service;
 
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        service = new AuthenticationService(traineeDAO, trainerDAO, new GymMetrics(registry));
+        service = new AuthenticationService(traineeDAO, trainerDAO, ENCODER, new GymMetrics(registry));
+    }
+
+    private static String hash(String password) {
+        return password == null ? null : ENCODER.encode(password);
     }
 
     private static Trainee trainee(String password) {
         Trainee trainee = new Trainee();
-        trainee.setPassword(password);
+        trainee.setPassword(hash(password));
         return trainee;
     }
 
     private static Trainer trainer(String password) {
         Trainer trainer = new Trainer();
-        trainer.setPassword(password);
+        trainer.setPassword(hash(password));
         return trainer;
+    }
+
+    @Test
+    void plainTextStoredPasswordDoesNotMatch() {
+        Trainee trainee = new Trainee();
+        trainee.setPassword("pass");
+        when(traineeDAO.findByUsername("t")).thenReturn(Optional.of(trainee));
+
+        assertFalse(service.isValidTrainee("t", "pass"));
     }
 
     @Test

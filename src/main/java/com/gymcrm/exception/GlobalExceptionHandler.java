@@ -2,6 +2,7 @@ package com.gymcrm.exception;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -23,6 +24,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handlePasswordException(PasswordException e) {
         log.warn("Authentication error: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
+    }
+
+    @ExceptionHandler(LoginBlockedException.class)
+    public ResponseEntity<String> handleLoginBlockedException(LoginBlockedException e) {
+        log.warn("Login blocked: {}", e.getMessage());
+        long retryAfterSeconds = Math.max(1, (long) Math.ceil(e.getRetryAfter().toMillis() / 1000.0));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds))
+                .body(e.getMessage());
     }
 
     @ExceptionHandler(ForbiddenException.class)
