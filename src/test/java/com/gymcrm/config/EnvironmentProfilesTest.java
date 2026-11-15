@@ -17,9 +17,9 @@ class EnvironmentProfilesTest {
     @ParameterizedTest(name = "{0} profile uses {1} with ddl-auto={3}")
     @CsvSource({
             "local, jdbc:h2:mem:gymdb_local, org.h2.Driver, create-drop",
-            "dev,   jdbc:postgresql://localhost:5432/gymcrm_dev, org.postgresql.Driver, update",
-            "stg,   jdbc:postgresql://stg-db.gymcrm.internal:5432/gymcrm_stg, org.postgresql.Driver, update",
-            "prod,  jdbc:postgresql://prod-db.gymcrm.internal:5432/gymcrm_prod, org.postgresql.Driver, validate"
+            "dev,   jdbc:postgresql://localhost:5432/gymcrm-dev, org.postgresql.Driver, update",
+            "stg,   jdbc:postgresql://stg-db.gymcrm.internal:5432/gymcrm-stg, org.postgresql.Driver, update",
+            "prod,  jdbc:postgresql://prod-db.gymcrm.internal:5432/gymcrm-prod, org.postgresql.Driver, validate"
     })
     void eachProfileDefinesItsOwnDatabase(String profile, String urlPrefix, String driver, String ddlAuto) {
         runner.withPropertyValues("spring.profiles.active=" + profile).run(context -> {

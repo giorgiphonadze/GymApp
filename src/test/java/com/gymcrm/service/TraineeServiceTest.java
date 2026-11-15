@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDate;
 import java.util.Collections;
@@ -31,6 +33,8 @@ class TraineeServiceTest {
     @Mock
     private TrainerDAO trainerDAO;
 
+    private static final PasswordEncoder ENCODER = new BCryptPasswordEncoder(4);
+
     private SimpleMeterRegistry meterRegistry;
     private TraineeService traineeService;
 
@@ -39,12 +43,12 @@ class TraineeServiceTest {
         meterRegistry = new SimpleMeterRegistry();
         GymMetrics metrics = new GymMetrics(meterRegistry);
         traineeService = new TraineeService(traineeDAO, trainerDAO,
-                new AuthenticationService(traineeDAO, trainerDAO, metrics), metrics);
+                new AuthenticationService(traineeDAO, trainerDAO, ENCODER, metrics), ENCODER, metrics);
     }
 
     private Trainee traineeWithPassword(String password) {
         Trainee trainee = new Trainee("John", "Smith", null, "Addr");
-        trainee.setPassword(password);
+        trainee.setPassword(ENCODER.encode(password));
         return trainee;
     }
 
@@ -55,13 +59,27 @@ class TraineeServiceTest {
         when(trainerDAO.findAll()).thenReturn(Collections.emptyList());
         when(traineeDAO.save(any(Trainee.class))).thenAnswer(i -> i.getArgument(0));
 
-        Trainee created = traineeService.createTrainee(trainee);
+        CreatedUser<Trainee> created = traineeService.createTrainee(trainee);
 
-        assertEquals("John.Smith", created.getUsername());
-        assertEquals(10, created.getPassword().length());
-        assertTrue(created.isActive());
+        assertEquals("John.Smith", created.user().getUsername());
+        assertEquals(10, created.rawPassword().length());
+        assertTrue(created.user().isActive());
         verify(traineeDAO).save(trainee);
         assertEquals(1.0, meterRegistry.get("gym.registrations").tag("userType", "trainee").counter().count());
+    }
+
+    @Test
+    void createTraineeStoresSaltedHashInsteadOfPlainPassword() {
+        when(traineeDAO.findAll()).thenReturn(Collections.emptyList());
+        when(trainerDAO.findAll()).thenReturn(Collections.emptyList());
+        when(traineeDAO.save(any(Trainee.class))).thenAnswer(i -> i.getArgument(0));
+
+        CreatedUser<Trainee> created = traineeService.createTrainee(new Trainee("John", "Smith", null, "Addr"));
+
+        String stored = created.user().getPassword();
+        assertNotEquals(created.rawPassword(), stored);
+        assertTrue(stored.startsWith("$2a$"));
+        assertTrue(ENCODER.matches(created.rawPassword(), stored));
     }
 
     @Test
@@ -163,7 +181,7 @@ class TraineeServiceTest {
         assertEquals("New address", updated.getAddress());
         assertEquals(LocalDate.of(1990, 5, 1), updated.getDateOfBirth());
         assertFalse(updated.isActive());
-        assertEquals("pass", updated.getPassword());
+        assertTrue(ENCODER.matches("pass", updated.getPassword()));
         assertSame(trainers, updated.getTrainers());
     }
 
@@ -174,7 +192,8 @@ class TraineeServiceTest {
 
         traineeService.changePassword("John.Smith", "old", "new");
 
-        assertEquals("new", trainee.getPassword());
+        assertNotEquals("new", trainee.getPassword());
+        assertTrue(ENCODER.matches("new", trainee.getPassword()));
         verify(traineeDAO).update(trainee);
     }
 

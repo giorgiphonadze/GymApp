@@ -9,6 +9,7 @@ import com.gymcrm.dto.TrainerInfo;
 import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.UpdateTraineeRequest;
 import com.gymcrm.facade.GymFacade;
+import com.gymcrm.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -21,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,7 +30,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,9 +50,10 @@ public class TraineeController {
     }
 
     @SecurityRequirements
-    @Operation(summary = "Register trainee")
+    @Operation(summary = "Register trainee",
+            description = "Public endpoint. Generates the username and password and returns them together with a JWT.")
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Trainee registered; username and password returned"),
+            @ApiResponse(responseCode = "201", description = "Trainee registered; username, password and token returned"),
             @ApiResponse(responseCode = "400", description = "Validation failed")
     })
     @PostMapping
@@ -68,10 +70,10 @@ public class TraineeController {
     @GetMapping("/{username}")
     public ResponseEntity<TraineeProfileResponse> getTraineeProfile(
             @PathVariable("username") String username,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to get trainee profile: {}", username);
-        return ResponseEntity.ok(gymFacade.getTraineeProfile(authHeader, username));
+        return ResponseEntity.ok(gymFacade.getTraineeProfile(user, username));
     }
 
     @Operation(summary = "Update trainee profile")
@@ -84,10 +86,10 @@ public class TraineeController {
     public ResponseEntity<TraineeProfileResponse> updateTraineeProfile(
             @PathVariable("username") String username,
             @Valid @RequestBody UpdateTraineeRequest request,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to update trainee profile: {}", username);
-        return ResponseEntity.ok(gymFacade.updateTraineeProfile(authHeader, username, request));
+        return ResponseEntity.ok(gymFacade.updateTraineeProfile(user, username, request));
     }
 
     @Operation(summary = "Delete trainee profile")
@@ -98,10 +100,10 @@ public class TraineeController {
     @DeleteMapping("/{username}")
     public ResponseEntity<Void> deleteTraineeProfile(
             @PathVariable("username") String username,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to delete trainee profile: {}", username);
-        gymFacade.deleteTraineeProfile(authHeader, username);
+        gymFacade.deleteTraineeProfile(user, username);
         return ResponseEntity.ok().build();
     }
 
@@ -115,10 +117,10 @@ public class TraineeController {
     public ResponseEntity<List<TrainerInfo>> updateTraineeTrainers(
             @PathVariable("username") String username,
             @Valid @RequestBody List<String> trainerUsernames,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to update trainers for trainee: {}", username);
-        return ResponseEntity.ok(gymFacade.updateTraineeTrainers(authHeader, username, trainerUsernames));
+        return ResponseEntity.ok(gymFacade.updateTraineeTrainers(user, username, trainerUsernames));
     }
 
     @Operation(summary = "Get trainee trainings list")
@@ -136,10 +138,10 @@ public class TraineeController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate periodTo,
             @RequestParam(value = "trainerName", required = false) String trainerName,
             @RequestParam(value = "trainingType", required = false) String trainingType,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to get trainee trainings: {}", username);
-        return ResponseEntity.ok(gymFacade.getTraineeTrainings(authHeader, username, periodFrom, periodTo,
+        return ResponseEntity.ok(gymFacade.getTraineeTrainings(user, username, periodFrom, periodTo,
                 trainerName, trainingType));
     }
 
@@ -151,10 +153,10 @@ public class TraineeController {
     @GetMapping("/{username}/unassigned-trainers")
     public ResponseEntity<List<TrainerInfo>> getUnassignedTrainers(
             @PathVariable("username") String username,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to get unassigned trainers for trainee: {}", username);
-        return ResponseEntity.ok(gymFacade.getUnassignedTrainers(authHeader, username));
+        return ResponseEntity.ok(gymFacade.getUnassignedTrainers(user, username));
     }
 
     @Operation(summary = "Activate/de-activate trainee")
@@ -168,10 +170,10 @@ public class TraineeController {
     public ResponseEntity<Void> activateDeactivateTrainee(
             @PathVariable("username") String username,
             @Valid @RequestBody ActivateDeactivateRequest request,
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @AuthenticationPrincipal AuthenticatedUser user) {
 
         log.info("REST request to change active status of trainee: {}", username);
-        gymFacade.activateDeactivateTrainee(authHeader, username, request);
+        gymFacade.activateDeactivateTrainee(user, username, request);
         return ResponseEntity.ok().build();
     }
 }
