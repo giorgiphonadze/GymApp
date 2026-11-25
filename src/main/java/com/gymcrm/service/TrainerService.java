@@ -9,6 +9,7 @@ import com.gymcrm.utils.UserUtils;
 import org.hibernate.Hibernate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,28 +24,31 @@ public class TrainerService {
     private final TrainerDAO trainerDAO;
     private final TraineeDAO traineeDAO;
     private final AuthenticationService authenticationService;
+    private final PasswordEncoder passwordEncoder;
     private final GymMetrics metrics;
 
-    public TrainerService(TrainerDAO trainerDAO, TraineeDAO traineeDAO,
-                          AuthenticationService authenticationService, GymMetrics metrics) {
+    public TrainerService(TrainerDAO trainerDAO, TraineeDAO traineeDAO, AuthenticationService authenticationService,
+                          PasswordEncoder passwordEncoder, GymMetrics metrics) {
         this.trainerDAO = trainerDAO;
         this.traineeDAO = traineeDAO;
         this.authenticationService = authenticationService;
+        this.passwordEncoder = passwordEncoder;
         this.metrics = metrics;
     }
 
     @Transactional
-    public Trainer createTrainer(Trainer trainer) {
+    public CreatedUser<Trainer> createTrainer(Trainer trainer) {
         log.debug("Creating trainer {} {}", trainer.getFirstName(), trainer.getLastName());
         validateTrainer(trainer);
         Set<String> existingUsernames = UserUtils.collectUsernames(traineeDAO.findAll(), trainerDAO.findAll());
         trainer.setUsername(UserUtils.generateUsername(trainer.getFirstName(), trainer.getLastName(), existingUsernames));
-        trainer.setPassword(UserUtils.generatePassword());
+        String rawPassword = UserUtils.generatePassword();
+        trainer.setPassword(passwordEncoder.encode(rawPassword));
         trainer.setActive(true);
         Trainer saved = trainerDAO.save(trainer);
         metrics.recordRegistration(UserType.TRAINER);
         log.info("Created Trainer: {}", saved.getUsername());
-        return saved;
+        return new CreatedUser<>(saved, rawPassword);
     }
 
     @Transactional
@@ -78,7 +82,7 @@ public class TrainerService {
     @Transactional
     public void changePassword(String username, String oldPassword, String newPassword) {
         Trainer trainer = authenticationService.authenticateTrainer(username, oldPassword);
-        trainer.setPassword(newPassword);
+        trainer.setPassword(passwordEncoder.encode(newPassword));
         trainerDAO.update(trainer);
         log.info("Changed password for Trainer: {}", username);
     }

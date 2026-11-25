@@ -10,4 +10,7 @@ import lombok.NoArgsConstructor;
 public class RegistrationResponse {
     private String username;
     private String password;
+    private String token;
+    private String tokenType;
+    private long expiresIn;
 }

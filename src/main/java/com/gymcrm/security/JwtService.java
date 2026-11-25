@@ -1,7 +1,6 @@
 package com.gymcrm.security;
 
 import com.gymcrm.domain.UserType;
-import com.gymcrm.exception.PasswordException;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
@@ -20,10 +19,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 @Service
 public class JwtService {
-    static final String BEARER_PREFIX = "Bearer ";
+    public static final String TOKEN_TYPE = "Bearer";
     private static final String USER_TYPE_CLAIM = "userType";
 
     private final SecretKey key;
@@ -52,6 +52,7 @@ public class JwtService {
     public String generateToken(String username, UserType userType) {
         Instant now = clock.instant();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(username)
                 .claim(USER_TYPE_CLAIM, userType.name())
                 .issuedAt(Date.from(now))
@@ -64,22 +65,20 @@ public class JwtService {
         return expiration.toSeconds();
     }
 
-    public AuthenticatedUser authenticate(String authHeader) {
-        if (authHeader == null || authHeader.isBlank()) {
-            throw new PasswordException("Authorization header is missing");
-        }
-        if (!authHeader.startsWith(BEARER_PREFIX)) {
-            throw new PasswordException("Authorization header must use the Bearer scheme");
-        }
-        String token = authHeader.substring(BEARER_PREFIX.length()).trim();
-        if (token.isEmpty()) {
-            throw new PasswordException("Bearer token is empty");
+    public VerifiedToken verify(String token) {
+        if (token == null || token.isBlank()) {
+            throw new InvalidTokenException("Bearer token is empty");
         }
         Claims claims = parseClaims(token);
         if (claims.getSubject() == null || claims.getSubject().isBlank()) {
-            throw new PasswordException("Token does not identify a user");
+            throw new InvalidTokenException("Token does not identify a user");
         }
-        return new AuthenticatedUser(claims.getSubject(), parseUserType(claims.get(USER_TYPE_CLAIM, String.class)));
+        if (claims.getId() == null || claims.getId().isBlank()) {
+            throw new InvalidTokenException("Token does not have an identifier");
+        }
+        AuthenticatedUser user = new AuthenticatedUser(claims.getSubject(),
+                parseUserType(claims.get(USER_TYPE_CLAIM, String.class)));
+        return new VerifiedToken(claims.getId(), user, claims.getExpiration().toInstant());
     }
 
     private Claims parseClaims(String token) {
@@ -91,26 +90,26 @@ public class JwtService {
                     .parseSignedClaims(token)
                     .getPayload();
         } catch (ExpiredJwtException e) {
-            throw new PasswordException("Token has expired", e);
+            throw new InvalidTokenException("Token has expired", e);
         } catch (SignatureException e) {
-            throw new PasswordException("Token signature is invalid", e);
+            throw new InvalidTokenException("Token signature is invalid", e);
         } catch (UnsupportedJwtException e) {
-            throw new PasswordException("Token must be signed", e);
+            throw new InvalidTokenException("Token must be signed", e);
         } catch (MalformedJwtException e) {
-            throw new PasswordException("Token is malformed", e);
+            throw new InvalidTokenException("Token is malformed", e);
         } catch (JwtException | IllegalArgumentException e) {
-            throw new PasswordException("Token could not be verified", e);
+            throw new InvalidTokenException("Token could not be verified", e);
         }
     }
 
     private static UserType parseUserType(String userType) {
         if (userType == null) {
-            throw new PasswordException("Token does not specify a user type");
+            throw new InvalidTokenException("Token does not specify a user type");
         }
         try {
             return UserType.valueOf(userType);
         } catch (IllegalArgumentException e) {
-            throw new PasswordException("Token contains an unknown user type", e);
+            throw new InvalidTokenException("Token contains an unknown user type", e);
         }
     }
 }

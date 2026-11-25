@@ -10,11 +10,10 @@ import com.gymcrm.exception.PasswordException;
 import com.gymcrm.metrics.GymMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Optional;
 
 @Service
@@ -24,11 +23,14 @@ public class AuthenticationService {
 
     private final TraineeDAO traineeDAO;
     private final TrainerDAO trainerDAO;
+    private final PasswordEncoder passwordEncoder;
     private final GymMetrics metrics;
 
-    public AuthenticationService(TraineeDAO traineeDAO, TrainerDAO trainerDAO, GymMetrics metrics) {
+    public AuthenticationService(TraineeDAO traineeDAO, TrainerDAO trainerDAO, PasswordEncoder passwordEncoder,
+                                 GymMetrics metrics) {
         this.traineeDAO = traineeDAO;
         this.trainerDAO = trainerDAO;
+        this.passwordEncoder = passwordEncoder;
         this.metrics = metrics;
     }
 
@@ -119,10 +121,10 @@ public class AuthenticationService {
         return userType.name().toLowerCase();
     }
 
-    private static boolean passwordMatches(String expected, String actual) {
-        if (expected == null || actual == null) {
+    private boolean passwordMatches(String storedHash, String rawPassword) {
+        if (storedHash == null || rawPassword == null) {
             return false;
         }
-        return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), actual.getBytes(StandardCharsets.UTF_8));
+        return passwordEncoder.matches(rawPassword, storedHash);
     }
 }

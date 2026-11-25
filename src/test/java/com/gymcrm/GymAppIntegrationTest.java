@@ -7,6 +7,7 @@ import com.gymcrm.domain.TrainingType;
 import com.gymcrm.domain.UserType;
 import com.gymcrm.exception.PasswordException;
 import com.gymcrm.facade.GymFacade;
+import com.gymcrm.service.CreatedUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -28,20 +29,23 @@ class GymAppIntegrationTest {
 
     @Test
     void completeGymFlow() {
-        Trainer createdTrainer = facade.createTrainer(new Trainer("Alice", "Jones", TrainingType.YOGA));
-        String trainerUsername = createdTrainer.getUsername();
+        CreatedUser<Trainer> createdTrainer = facade.createTrainer(new Trainer("Alice", "Jones", TrainingType.YOGA));
+        String trainerUsername = createdTrainer.user().getUsername();
+        String trainerPassword = createdTrainer.rawPassword();
         assertNotNull(trainerUsername);
 
-        Trainee createdTrainee = facade.createTrainee(new Trainee("Bob", "Brown", LocalDate.of(2000, 1, 1), "Some Address"));
-        String traineeUsername = createdTrainee.getUsername();
-        String traineePassword = createdTrainee.getPassword();
+        CreatedUser<Trainee> createdTrainee = facade.createTrainee(
+                new Trainee("Bob", "Brown", LocalDate.of(2000, 1, 1), "Some Address"));
+        String traineeUsername = createdTrainee.user().getUsername();
+        String traineePassword = createdTrainee.rawPassword();
+        assertNotEquals(traineePassword, facade.getTrainee(traineeUsername).orElseThrow().getPassword());
 
-        assertTrue(facade.authenticateTrainer(trainerUsername, createdTrainer.getPassword()));
+        assertTrue(facade.authenticateTrainer(trainerUsername, trainerPassword));
         assertTrue(facade.authenticateTrainee(traineeUsername, traineePassword));
         assertTrue(facade.authenticate(traineeUsername, traineePassword));
         assertFalse(facade.authenticate(traineeUsername, "wrong"));
         assertEquals(Optional.of(UserType.TRAINEE), facade.login(traineeUsername, traineePassword));
-        assertEquals(Optional.of(UserType.TRAINER), facade.login(trainerUsername, createdTrainer.getPassword()));
+        assertEquals(Optional.of(UserType.TRAINER), facade.login(trainerUsername, trainerPassword));
         assertEquals(Optional.empty(), facade.login(traineeUsername, "wrong"));
 
         facade.createTraining(traineeUsername, trainerUsername, "Morning Yoga",
@@ -82,11 +86,11 @@ class GymAppIntegrationTest {
 
     @Test
     void trainerLifecycle() {
-        Trainer trainer = facade.createTrainer(new Trainer("Carl", "Coach", TrainingType.BOXING));
-        String username = trainer.getUsername();
-        String password = trainer.getPassword();
+        CreatedUser<Trainer> created = facade.createTrainer(new Trainer("Carl", "Coach", TrainingType.BOXING));
+        String username = created.user().getUsername();
+        String password = created.rawPassword();
 
-        assertEquals(trainer.getUserId(), facade.getTrainer(username).orElseThrow().getUserId());
+        assertEquals(created.user().getUserId(), facade.getTrainer(username).orElseThrow().getUserId());
 
         facade.changeTrainerPassword(username, password, "newPassword2");
         assertFalse(facade.authenticateTrainer(username, password));
@@ -104,8 +108,7 @@ class GymAppIntegrationTest {
 
     @Test
     void traineeProfileCanBeUpdated() {
-        Trainee trainee = facade.createTrainee(new Trainee("Dina", "Dancer", null, "Old address"));
-        String username = trainee.getUsername();
+        String username = facade.createTrainee(new Trainee("Dina", "Dancer", null, "Old address")).user().getUsername();
 
         facade.updateTrainee(username, "Dina", "Dancer", null, "New address", true);
 

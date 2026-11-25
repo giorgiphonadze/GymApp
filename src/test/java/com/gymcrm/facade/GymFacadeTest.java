@@ -15,13 +15,18 @@ import com.gymcrm.dto.TraineeProfileResponse;
 import com.gymcrm.dto.TraineeRegistrationRequest;
 import com.gymcrm.dto.TrainerInfo;
 import com.gymcrm.dto.TrainerProfileResponse;
+import com.gymcrm.dto.TrainerRegistrationRequest;
 import com.gymcrm.dto.TrainingResponse;
 import com.gymcrm.dto.TrainingTypeResponse;
 import com.gymcrm.exception.ForbiddenException;
+import com.gymcrm.exception.LoginBlockedException;
 import com.gymcrm.exception.PasswordException;
 import com.gymcrm.security.AuthenticatedUser;
 import com.gymcrm.security.JwtService;
+import com.gymcrm.security.LoginService;
+import com.gymcrm.security.VerifiedToken;
 import com.gymcrm.service.AuthenticationService;
+import com.gymcrm.service.CreatedUser;
 import com.gymcrm.service.TraineeService;
 import com.gymcrm.service.TrainerService;
 import com.gymcrm.service.TrainingService;
@@ -54,20 +59,23 @@ class GymFacadeTest {
     private TrainingService trainingService;
     @Mock
     private AuthenticationService authenticationService;
+    @Mock
+    private LoginService loginService;
 
     private GymFacade facade;
 
     @BeforeEach
     void setUp() {
-        facade = new GymFacade(traineeService, trainerService, trainingService, authenticationService, JWT_SERVICE);
+        facade = new GymFacade(traineeService, trainerService, trainingService, authenticationService, loginService,
+                JWT_SERVICE);
     }
 
-    private static String traineeToken(String username) {
-        return "Bearer " + JWT_SERVICE.generateToken(username, UserType.TRAINEE);
+    private static AuthenticatedUser trainee(String username) {
+        return new AuthenticatedUser(username, UserType.TRAINEE);
     }
 
-    private static String trainerToken(String username) {
-        return "Bearer " + JWT_SERVICE.generateToken(username, UserType.TRAINER);
+    private static AuthenticatedUser trainer(String username) {
+        return new AuthenticatedUser(username, UserType.TRAINER);
     }
 
     private static Trainer trainer(String username, String firstName, String lastName) {
@@ -78,20 +86,20 @@ class GymFacadeTest {
 
     @Test
     void loginIssuesTokenForTheAuthenticatedUserType() {
-        when(authenticationService.identify("coach", "pass")).thenReturn(Optional.of(UserType.TRAINER));
+        when(loginService.login("coach", "pass")).thenReturn(trainer("coach"));
 
         LoginResponse response = facade.login(new LoginRequest("coach", "pass"));
 
         assertEquals("Bearer", response.getTokenType());
         assertEquals(1800, response.getExpiresIn());
-        AuthenticatedUser user = JWT_SERVICE.authenticate("Bearer " + response.getToken());
-        assertEquals("coach", user.username());
-        assertEquals(UserType.TRAINER, user.userType());
+        VerifiedToken token = JWT_SERVICE.verify(response.getToken());
+        assertEquals(trainer("coach"), token.user());
     }
 
     @Test
-    void loginFailureHasDescriptiveMessage() {
-        when(authenticationService.identify("user", "secret")).thenReturn(Optional.empty());
+    void loginFailurePropagates() {
+        when(loginService.login("user", "secret"))
+                .thenThrow(new PasswordException("Login failed: invalid username or password"));
 
         PasswordException e = assertThrows(PasswordException.class,
                 () -> facade.login(new LoginRequest("user", "secret")));
@@ -100,12 +108,17 @@ class GymFacadeTest {
     }
 
     @Test
-    void changePasswordDispatchesByUserType() {
-        when(authenticationService.findUserType("t")).thenReturn(Optional.of(UserType.TRAINEE));
-        when(authenticationService.findUserType("tr")).thenReturn(Optional.of(UserType.TRAINER));
+    void blockedLoginPropagates() {
+        when(loginService.login("user", "secret"))
+                .thenThrow(new LoginBlockedException("Too many failed login attempts", Duration.ofMinutes(5)));
 
-        facade.changePassword(new ChangePasswordRequest("t", "old", "new"));
-        facade.changePassword(new ChangePasswordRequest("tr", "old", "new"));
+        assertThrows(LoginBlockedException.class, () -> facade.login(new LoginRequest("user", "secret")));
+    }
+
+    @Test
+    void changePasswordDispatchesByUserTypeOfToken() {
+        facade.changePassword(trainee("t"), new ChangePasswordRequest("t", "old", "new"));
+        facade.changePassword(trainer("tr"), new ChangePasswordRequest("tr", "old", "new"));
 
         verify(traineeService).changePassword("t", "old", "new");
         verify(trainerService).changePassword("tr", "old", "new");
@@ -113,24 +126,20 @@ class GymFacadeTest {
     }
 
     @Test
-    void changePasswordForUnknownUserFails() {
-        when(authenticationService.findUserType("nobody")).thenReturn(Optional.empty());
+    void changePasswordOfAnotherUserIsForbidden() {
+        assertThrows(ForbiddenException.class,
+                () -> facade.changePassword(trainee("t"), new ChangePasswordRequest("other", "old", "new")));
 
-        PasswordException e = assertThrows(PasswordException.class,
-                () -> facade.changePassword(new ChangePasswordRequest("nobody", "old", "new")));
-
-        assertEquals("Password change failed: invalid username or old password", e.getMessage());
         verifyNoInteractions(traineeService, trainerService);
     }
 
     @Test
     void changePasswordWithWrongOldPasswordKeepsReasonAsCause() {
-        when(authenticationService.findUserType("t")).thenReturn(Optional.of(UserType.TRAINEE));
         doThrow(new PasswordException("Incorrect password for trainee account"))
                 .when(traineeService).changePassword("t", "wrong", "new");
 
         PasswordException e = assertThrows(PasswordException.class,
-                () -> facade.changePassword(new ChangePasswordRequest("t", "wrong", "new")));
+                () -> facade.changePassword(trainee("t"), new ChangePasswordRequest("t", "wrong", "new")));
 
         assertEquals("Password change failed: invalid username or old password", e.getMessage());
         assertEquals("Incorrect password for trainee account", e.getCause().getMessage());
@@ -138,12 +147,12 @@ class GymFacadeTest {
     }
 
     @Test
-    void registerTraineeBuildsDomainObjectAndReturnsCredentials() {
+    void registerTraineeReturnsGeneratedCredentialsAndToken() {
         when(traineeService.createTrainee(any(Trainee.class))).thenAnswer(invocation -> {
             Trainee trainee = invocation.getArgument(0);
             trainee.setUsername("John.Doe");
-            trainee.setPassword("generated");
-            return trainee;
+            trainee.setPassword("$2a$hash");
+            return new CreatedUser<>(trainee, "generated");
         });
 
         RegistrationResponse response = facade.registerTrainee(
@@ -153,7 +162,26 @@ class GymFacadeTest {
         verify(traineeService).createTrainee(captor.capture());
         assertEquals("John", captor.getValue().getFirstName());
         assertEquals("Street", captor.getValue().getAddress());
-        assertEquals(new RegistrationResponse("John.Doe", "generated"), response);
+        assertEquals("John.Doe", response.getUsername());
+        assertEquals("generated", response.getPassword());
+        assertEquals("Bearer", response.getTokenType());
+        assertEquals(1800, response.getExpiresIn());
+        assertEquals(trainee("John.Doe"), JWT_SERVICE.verify(response.getToken()).user());
+    }
+
+    @Test
+    void registerTrainerReturnsTrainerToken() {
+        when(trainerService.createTrainer(any(Trainer.class))).thenAnswer(invocation -> {
+            Trainer trainer = invocation.getArgument(0);
+            trainer.setUsername("Jane.Doe");
+            return new CreatedUser<>(trainer, "generated");
+        });
+
+        RegistrationResponse response = facade.registerTrainer(
+                new TrainerRegistrationRequest("Jane", "Doe", TrainingType.YOGA));
+
+        assertEquals("generated", response.getPassword());
+        assertEquals(trainer("Jane.Doe"), JWT_SERVICE.verify(response.getToken()).user());
     }
 
     @Test
@@ -164,7 +192,7 @@ class GymFacadeTest {
         trainee.setTrainers(Set.of(trainer("Jane.Doe", "Jane", "Doe")));
         when(traineeService.getTraineeByUsername("John.Doe")).thenReturn(Optional.of(trainee));
 
-        TraineeProfileResponse profile = facade.getTraineeProfile(traineeToken("John.Doe"), "John.Doe");
+        TraineeProfileResponse profile = facade.getTraineeProfile(trainee("John.Doe"), "John.Doe");
 
         assertEquals("John", profile.getFirstName());
         assertTrue(profile.isActive());
@@ -176,33 +204,16 @@ class GymFacadeTest {
         Trainer trainer = trainer("Jane.Doe", "Jane", "Doe");
         when(trainerService.getTrainerByUsername("Jane.Doe")).thenReturn(Optional.of(trainer));
 
-        TrainerProfileResponse profile = facade.getTrainerProfile(trainerToken("Jane.Doe"), "Jane.Doe");
+        TrainerProfileResponse profile = facade.getTrainerProfile(trainer("Jane.Doe"), "Jane.Doe");
 
         assertEquals(TrainingType.YOGA, profile.getSpecialization());
         assertEquals(List.of(), profile.getTrainees());
     }
 
     @Test
-    void missingAuthorizationHeaderIsRejectedBeforeReachingServices() {
-        PasswordException e = assertThrows(PasswordException.class,
-                () -> facade.getTraineeProfile(null, "John.Doe"));
-
-        assertEquals("Authorization header is missing", e.getMessage());
-        verifyNoInteractions(traineeService);
-    }
-
-    @Test
-    void basicCredentialsAreRejected() {
-        PasswordException e = assertThrows(PasswordException.class,
-                () -> facade.getTraineeProfile("Basic Sm9obi5Eb2U6cGFzcw==", "John.Doe"));
-
-        assertEquals("Authorization header must use the Bearer scheme", e.getMessage());
-    }
-
-    @Test
     void tokenOfAnotherTraineeIsForbidden() {
         ForbiddenException e = assertThrows(ForbiddenException.class,
-                () -> facade.deleteTraineeProfile(traineeToken("Someone.Else"), "John.Doe"));
+                () -> facade.deleteTraineeProfile(trainee("Someone.Else"), "John.Doe"));
 
         assertEquals("Access denied: the token does not belong to the requested trainee account", e.getMessage());
         assertFalse(e.getMessage().contains("Someone.Else") || e.getMessage().contains("John.Doe"));
@@ -212,7 +223,7 @@ class GymFacadeTest {
     @Test
     void trainerTokenCannotAccessTraineeResources() {
         ForbiddenException e = assertThrows(ForbiddenException.class,
-                () -> facade.getTraineeProfile(trainerToken("John.Doe"), "John.Doe"));
+                () -> facade.getTraineeProfile(trainer("John.Doe"), "John.Doe"));
 
         assertEquals("Access denied: this resource requires a trainee token, but a trainer token was provided",
                 e.getMessage());
@@ -221,7 +232,7 @@ class GymFacadeTest {
     @Test
     void traineeTokenCannotAccessTrainerResources() {
         assertThrows(ForbiddenException.class,
-                () -> facade.activateDeactivateTrainer(traineeToken("Jane.Doe"), "Jane.Doe",
+                () -> facade.activateDeactivateTrainer(trainee("Jane.Doe"), "Jane.Doe",
                         new ActivateDeactivateRequest("Jane.Doe", false)));
 
         verifyNoInteractions(trainerService);
@@ -233,7 +244,7 @@ class GymFacadeTest {
         trainee.setTrainers(Set.of(trainer("Jane.Doe", "Jane", "Doe")));
         when(traineeService.getTraineeByUsername("John.Doe")).thenReturn(Optional.of(trainee));
 
-        List<TrainerInfo> trainers = facade.updateTraineeTrainers(traineeToken("John.Doe"), "John.Doe",
+        List<TrainerInfo> trainers = facade.updateTraineeTrainers(trainee("John.Doe"), "John.Doe",
                 List.of("Jane.Doe"));
 
         verify(traineeService).updateTrainersList("John.Doe", List.of("Jane.Doe"));
@@ -247,7 +258,7 @@ class GymFacadeTest {
                 TrainingType.YOGA, LocalDate.of(2030, 1, 1), Duration.ofMinutes(45));
         when(trainingService.getTraineeTrainings("John.Doe", null, null, null, null)).thenReturn(List.of(training));
 
-        List<TrainingResponse> trainings = facade.getTraineeTrainings(traineeToken("John.Doe"), "John.Doe",
+        List<TrainingResponse> trainings = facade.getTraineeTrainings(trainee("John.Doe"), "John.Doe",
                 null, null, null, null);
 
         assertEquals(1, trainings.size());
@@ -263,7 +274,7 @@ class GymFacadeTest {
                 TrainingType.YOGA, LocalDate.of(2030, 1, 1), Duration.ofMinutes(30));
         when(trainingService.getTrainerTrainings("Jane.Doe", null, null, "John")).thenReturn(List.of(training));
 
-        List<TrainingResponse> trainings = facade.getTrainerTrainings(trainerToken("Jane.Doe"), "Jane.Doe",
+        List<TrainingResponse> trainings = facade.getTrainerTrainings(trainer("Jane.Doe"), "Jane.Doe",
                 null, null, "John");
 
         assertEquals("John Doe", trainings.get(0).getTraineeName());
@@ -275,32 +286,22 @@ class GymFacadeTest {
         AddTrainingRequest request = new AddTrainingRequest("trainee", "trainer", "workout",
                 LocalDate.of(2030, 1, 1), 60);
 
-        facade.addTraining(traineeToken("trainee"), request);
+        facade.addTraining(trainee("trainee"), request);
         verify(trainingService).createTraining("trainee", "trainer", "workout",
                 LocalDate.of(2030, 1, 1), Duration.ofMinutes(60));
 
-        assertThrows(ForbiddenException.class, () -> facade.addTraining(trainerToken("trainee"), request));
-        assertThrows(ForbiddenException.class, () -> facade.addTraining(traineeToken("someone-else"), request));
+        assertThrows(ForbiddenException.class, () -> facade.addTraining(trainer("trainee"), request));
+        assertThrows(ForbiddenException.class, () -> facade.addTraining(trainee("someone-else"), request));
         verifyNoMoreInteractions(trainingService);
     }
 
     @Test
-    void trainingTypesAreAvailableToAnyAuthenticatedUser() {
+    void trainingTypesAreMappedWithIds() {
         when(trainingService.getTrainingTypes()).thenReturn(List.of(TrainingType.YOGA));
 
-        List<TrainingTypeResponse> types = facade.getTrainingTypes(trainerToken("anyone"));
+        List<TrainingTypeResponse> types = facade.listTrainingTypes();
 
         assertEquals("Yoga", types.get(0).getTrainingType());
         assertEquals((long) TrainingType.YOGA.ordinal() + 1, types.get(0).getTrainingTypeId());
-        assertEquals(1, facade.getTrainingTypes(traineeToken("someone")).size());
-    }
-
-    @Test
-    void trainingTypesRejectInvalidToken() {
-        PasswordException e = assertThrows(PasswordException.class,
-                () -> facade.getTrainingTypes("Bearer not-a-real-token"));
-
-        assertEquals("Token is malformed", e.getMessage());
-        verifyNoInteractions(trainingService);
     }
 }

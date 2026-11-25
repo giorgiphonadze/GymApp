@@ -22,8 +22,11 @@ import com.gymcrm.dto.TrainingTypeResponse;
 import com.gymcrm.dto.UpdateTraineeRequest;
 import com.gymcrm.dto.UpdateTrainerRequest;
 import com.gymcrm.exception.PasswordException;
+import com.gymcrm.security.AuthenticatedUser;
 import com.gymcrm.security.JwtService;
+import com.gymcrm.security.LoginService;
 import com.gymcrm.service.AuthenticationService;
+import com.gymcrm.service.CreatedUser;
 import com.gymcrm.service.TraineeService;
 import com.gymcrm.service.TrainerService;
 import com.gymcrm.service.TrainingService;
@@ -40,38 +43,34 @@ import java.util.Optional;
 @Component
 public class GymFacade {
     private static final Logger log = LoggerFactory.getLogger(GymFacade.class);
-    private static final String TOKEN_TYPE = "Bearer";
-    private static final String LOGIN_FAILED = "Login failed: invalid username or password";
     private static final String PASSWORD_CHANGE_FAILED = "Password change failed: invalid username or old password";
 
     private final TraineeService traineeService;
     private final TrainerService trainerService;
     private final TrainingService trainingService;
     private final AuthenticationService authenticationService;
+    private final LoginService loginService;
     private final JwtService jwtService;
 
     public GymFacade(TraineeService traineeService, TrainerService trainerService, TrainingService trainingService,
-                     AuthenticationService authenticationService, JwtService jwtService) {
+                     AuthenticationService authenticationService, LoginService loginService, JwtService jwtService) {
         this.traineeService = traineeService;
         this.trainerService = trainerService;
         this.trainingService = trainingService;
         this.authenticationService = authenticationService;
+        this.loginService = loginService;
         this.jwtService = jwtService;
     }
 
     public LoginResponse login(LoginRequest request) {
-        UserType userType = login(request.getUsername(), request.getPassword())
-                .orElseThrow(() -> new PasswordException(LOGIN_FAILED));
-        String token = jwtService.generateToken(request.getUsername(), userType);
-        return new LoginResponse(token, TOKEN_TYPE, jwtService.getExpiresInSeconds());
+        AuthenticatedUser user = loginService.login(request.getUsername(), request.getPassword());
+        String token = jwtService.generateToken(user.username(), user.userType());
+        return new LoginResponse(token, JwtService.TOKEN_TYPE, jwtService.getExpiresInSeconds());
     }
 
-    public void changePassword(ChangePasswordRequest request) {
-        UserType userType = authenticationService.findUserType(request.getUsername())
-                .orElseThrow(() -> {
-                    log.warn("Password change rejected: no trainee or trainer account matches the given username");
-                    return new PasswordException(PASSWORD_CHANGE_FAILED);
-                });
+    public void changePassword(AuthenticatedUser user, ChangePasswordRequest request) {
+        user.requireSelf(user.userType(), request.getUsername());
+        UserType userType = user.userType();
         try {
             if (userType == UserType.TRAINEE) {
                 changeTraineePassword(request.getUsername(), request.getOldPassword(), request.getNewPassword());
@@ -85,37 +84,39 @@ public class GymFacade {
     }
 
     public RegistrationResponse registerTrainee(TraineeRegistrationRequest request) {
-        Trainee created = createTrainee(new Trainee(request.getFirstName(), request.getLastName(),
+        CreatedUser<Trainee> created = createTrainee(new Trainee(request.getFirstName(), request.getLastName(),
                 request.getDateOfBirth(), request.getAddress()));
-        return new RegistrationResponse(created.getUsername(), created.getPassword());
+        return toRegistrationResponse(created, UserType.TRAINEE);
     }
 
-    public TraineeProfileResponse getTraineeProfile(String authHeader, String username) {
-        authorize(authHeader, UserType.TRAINEE, username);
+    public TraineeProfileResponse getTraineeProfile(AuthenticatedUser user, String username) {
+        authorize(user, UserType.TRAINEE, username);
         return toTraineeProfileResponse(requireTrainee(username));
     }
 
-    public TraineeProfileResponse updateTraineeProfile(String authHeader, String username, UpdateTraineeRequest request) {
-        authorize(authHeader, UserType.TRAINEE, username);
+    public TraineeProfileResponse updateTraineeProfile(AuthenticatedUser user, String username,
+                                                       UpdateTraineeRequest request) {
+        authorize(user, UserType.TRAINEE, username);
         Trainee updated = updateTrainee(username, request.getFirstName(), request.getLastName(),
                 request.getDateOfBirth(), request.getAddress(), request.getIsActive());
         return toTraineeProfileResponse(updated);
     }
 
-    public void deleteTraineeProfile(String authHeader, String username) {
-        authorize(authHeader, UserType.TRAINEE, username);
+    public void deleteTraineeProfile(AuthenticatedUser user, String username) {
+        authorize(user, UserType.TRAINEE, username);
         deleteTrainee(username);
     }
 
-    public List<TrainerInfo> updateTraineeTrainers(String authHeader, String username, List<String> trainerUsernames) {
-        authorize(authHeader, UserType.TRAINEE, username);
+    public List<TrainerInfo> updateTraineeTrainers(AuthenticatedUser user, String username,
+                                                   List<String> trainerUsernames) {
+        authorize(user, UserType.TRAINEE, username);
         updateTraineeTrainers(username, trainerUsernames);
         return toTrainerInfos(requireTrainee(username).getTrainers());
     }
 
-    public List<TrainingResponse> getTraineeTrainings(String authHeader, String username, LocalDate fromDate,
+    public List<TrainingResponse> getTraineeTrainings(AuthenticatedUser user, String username, LocalDate fromDate,
                                                       LocalDate toDate, String trainerName, String trainingTypeName) {
-        authorize(authHeader, UserType.TRAINEE, username);
+        authorize(user, UserType.TRAINEE, username);
         return getTraineeTrainings(username, fromDate, toDate, trainerName, trainingTypeName).stream()
                 .map(training -> TrainingResponse.builder()
                         .trainingName(training.getTrainingName())
@@ -127,36 +128,37 @@ public class GymFacade {
                 .toList();
     }
 
-    public List<TrainerInfo> getUnassignedTrainers(String authHeader, String username) {
-        authorize(authHeader, UserType.TRAINEE, username);
+    public List<TrainerInfo> getUnassignedTrainers(AuthenticatedUser user, String username) {
+        authorize(user, UserType.TRAINEE, username);
         return toTrainerInfos(getTrainersNotAssignedToTrainee(username));
     }
 
-    public void activateDeactivateTrainee(String authHeader, String username, ActivateDeactivateRequest request) {
-        authorize(authHeader, UserType.TRAINEE, username);
+    public void activateDeactivateTrainee(AuthenticatedUser user, String username, ActivateDeactivateRequest request) {
+        authorize(user, UserType.TRAINEE, username);
         activateDeactivateTrainee(username, request.getIsActive());
     }
 
     public RegistrationResponse registerTrainer(TrainerRegistrationRequest request) {
-        Trainer created = createTrainer(new Trainer(request.getFirstName(), request.getLastName(),
+        CreatedUser<Trainer> created = createTrainer(new Trainer(request.getFirstName(), request.getLastName(),
                 request.getSpecialization()));
-        return new RegistrationResponse(created.getUsername(), created.getPassword());
+        return toRegistrationResponse(created, UserType.TRAINER);
     }
 
-    public TrainerProfileResponse getTrainerProfile(String authHeader, String username) {
-        authorize(authHeader, UserType.TRAINER, username);
+    public TrainerProfileResponse getTrainerProfile(AuthenticatedUser user, String username) {
+        authorize(user, UserType.TRAINER, username);
         return toTrainerProfileResponse(requireTrainer(username));
     }
 
-    public TrainerProfileResponse updateTrainerProfile(String authHeader, String username, UpdateTrainerRequest request) {
-        authorize(authHeader, UserType.TRAINER, username);
+    public TrainerProfileResponse updateTrainerProfile(AuthenticatedUser user, String username,
+                                                       UpdateTrainerRequest request) {
+        authorize(user, UserType.TRAINER, username);
         Trainer updated = updateTrainer(username, request.getFirstName(), request.getLastName(), request.getIsActive());
         return toTrainerProfileResponse(updated);
     }
 
-    public List<TrainingResponse> getTrainerTrainings(String authHeader, String username, LocalDate fromDate,
+    public List<TrainingResponse> getTrainerTrainings(AuthenticatedUser user, String username, LocalDate fromDate,
                                                       LocalDate toDate, String traineeName) {
-        authorize(authHeader, UserType.TRAINER, username);
+        authorize(user, UserType.TRAINER, username);
         return getTrainerTrainings(username, fromDate, toDate, traineeName).stream()
                 .map(training -> TrainingResponse.builder()
                         .trainingName(training.getTrainingName())
@@ -168,26 +170,25 @@ public class GymFacade {
                 .toList();
     }
 
-    public void activateDeactivateTrainer(String authHeader, String username, ActivateDeactivateRequest request) {
-        authorize(authHeader, UserType.TRAINER, username);
+    public void activateDeactivateTrainer(AuthenticatedUser user, String username, ActivateDeactivateRequest request) {
+        authorize(user, UserType.TRAINER, username);
         activateDeactivateTrainer(username, request.getIsActive());
     }
 
-    public void addTraining(String authHeader, AddTrainingRequest request) {
-        authorize(authHeader, UserType.TRAINEE, request.getTraineeUsername());
+    public void addTraining(AuthenticatedUser user, AddTrainingRequest request) {
+        authorize(user, UserType.TRAINEE, request.getTraineeUsername());
         createTraining(request.getTraineeUsername(), request.getTrainerUsername(), request.getTrainingName(),
                 request.getTrainingDate(), Duration.ofMinutes(request.getTrainingDuration()));
     }
 
-    public List<TrainingTypeResponse> getTrainingTypes(String authHeader) {
-        jwtService.authenticate(authHeader);
+    public List<TrainingTypeResponse> listTrainingTypes() {
         return getTrainingTypes().stream()
                 .map(trainingType -> new TrainingTypeResponse(trainingType.getTrainingTypeName(),
                         (long) trainingType.ordinal() + 1))
                 .toList();
     }
 
-    public Trainee createTrainee(Trainee trainee) {
+    public CreatedUser<Trainee> createTrainee(Trainee trainee) {
         return traineeService.createTrainee(trainee);
     }
 
@@ -224,7 +225,7 @@ public class GymFacade {
         traineeService.activateDeactivate(username, isActive);
     }
 
-    public Trainer createTrainer(Trainer trainer) {
+    public CreatedUser<Trainer> createTrainer(Trainer trainer) {
         return trainerService.createTrainer(trainer);
     }
 
@@ -275,8 +276,14 @@ public class GymFacade {
         return trainingService.getTrainingTypes();
     }
 
-    private void authorize(String authHeader, UserType expectedType, String username) {
-        jwtService.authenticate(authHeader).requireSelf(expectedType, username);
+    private static void authorize(AuthenticatedUser user, UserType expectedType, String username) {
+        user.requireSelf(expectedType, username);
+    }
+
+    private RegistrationResponse toRegistrationResponse(CreatedUser<?> created, UserType userType) {
+        String username = created.user().getUsername();
+        return new RegistrationResponse(username, created.rawPassword(),
+                jwtService.generateToken(username, userType), JwtService.TOKEN_TYPE, jwtService.getExpiresInSeconds());
     }
 
     private Trainee requireTrainee(String username) {
